@@ -1,0 +1,565 @@
+--[[
+    BIN BELL - Blox Fruits Mobile
+    Version: 8.0.0 - Redz Hub Style
+    Tác giả: Axiom
+    Phong cách: Redz Hub - Đơn giản, hiệu quả
+]]
+
+-- ============================================
+-- DỊCH VỤ CƠ BẢN
+-- ============================================
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+-- ============================================
+-- CÀI ĐẶT
+-- ============================================
+local Settings = {
+    AutoFarm = false,
+    FastAttack = false,
+    SuperAttack = false,
+    ESPPlayers = false,
+    ESPEnemies = false,
+    AntiAFK = false,
+    AttackRange = 20,
+    AttackDelay = 0.1
+}
+
+local Connections = {}
+local ESPHighlights = {}
+
+-- ============================================
+-- HÀM THÔNG BÁO KIỂU REDZ
+-- ============================================
+local function Notify(title, message, duration)
+    duration = duration or 2
+    
+    local screenGui = CoreGui:FindFirstChild("BinBellNotif")
+    if not screenGui then
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "BinBellNotif"
+        screenGui.ResetOnSpawn = false
+        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        screenGui.DisplayOrder = 999
+        screenGui.Parent = CoreGui
+    end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 260, 0, 50)
+    frame.Position = UDim2.new(0.5, -130, 0, -50)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = frame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 0, 0)
+    stroke.Thickness = 1
+    stroke.Parent = frame
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 18)
+    title.Position = UDim2.new(0, 10, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = title
+    title.TextColor3 = Color3.fromRGB(255, 0, 0)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+    
+    local msg = Instance.new("TextLabel")
+    msg.Size = UDim2.new(1, -20, 0, 20)
+    msg.Position = UDim2.new(0, 10, 0, 25)
+    msg.BackgroundTransparency = 1
+    msg.Text = message
+    msg.TextColor3 = Color3.fromRGB(200, 200, 200)
+    msg.Font = Enum.Font.Gotham
+    msg.TextSize = 10
+    msg.TextXAlignment = Enum.TextXAlignment.Left
+    msg.TextWrapped = true
+    msg.Parent = frame
+    
+    local tweenIn = TweenService:Create(frame,
+        TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        {Position = UDim2.new(0.5, -130, 0, 10)}
+    )
+    tweenIn:Play()
+    
+    tweenIn.Completed:Connect(function()
+        task.delay(duration, function()
+            local tweenOut = TweenService:Create(frame,
+                TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                {Position = UDim2.new(0.5, -130, 0, -50)}
+            )
+            tweenOut:Play()
+            tweenOut.Completed:Connect(function()
+                frame:Destroy()
+            end)
+        end)
+    end)
+end
+
+-- ============================================
+-- AUTO FARM - ĐÁNH SIÊU NHANH
+-- ============================================
+local AutoFarm = {
+    Connection = nil,
+    LastAttack = 0
+}
+
+function AutoFarm:Start()
+    if self.Connection then return end
+    
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not Settings.AutoFarm then return end
+        
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then return end
+        
+        local rootPart = character.HumanoidRootPart
+        
+        -- Tìm quái gần nhất
+        local nearestEnemy = nil
+        local nearestDistance = Settings.AttackRange
+        
+        for _, enemy in pairs(workspace.Enemies:GetChildren()) do
+            if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
+                if enemy.Humanoid.Health > 0 then
+                    local distance = (rootPart.Position - enemy.HumanoidRootPart.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestEnemy = enemy
+                    end
+                end
+            end
+        end
+        
+        if nearestEnemy then
+            -- Dịch chuyển đến quái
+            rootPart.CFrame = nearestEnemy.HumanoidRootPart.CFrame + Vector3.new(0, 3, 2)
+            
+            -- Đánh với delay đã cài
+            local currentTime = os.clock()
+            if currentTime - self.LastAttack >= Settings.AttackDelay then
+                self.LastAttack = currentTime
+                
+                -- Kích hoạt tất cả tool
+                for _, tool in pairs(character:GetChildren()) do
+                    if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+                        tool:Activate()
+                        task.wait(0.01)
+                        tool:Deactivate()
+                    end
+                end
+                
+                -- Fire remote tấn công
+                local remotes = {"MeleeAttack", "Attack", "Click", "Hit", "Swing", "Punch", "Combat"}
+                for _, remoteName in pairs(remotes) do
+                    local remote = character:FindFirstChild(remoteName) or LocalPlayer.Backpack:FindFirstChild(remoteName)
+                    if remote and remote:IsA("RemoteEvent") then
+                        remote:FireServer("Attack", nearestEnemy)
+                        break
+                    end
+                end
+                
+                -- Tìm remote trong workspace
+                for _, obj in pairs(workspace:GetDescendants()) do
+                    if obj:IsA("RemoteEvent") and obj.Name:lower():find("attack") then
+                        obj:FireServer(nearestEnemy)
+                        break
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function AutoFarm:Stop()
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+end
+
+-- ============================================
+-- ESP DÙNG HIGHLIGHT
+-- ============================================
+local function AddHighlight(target, color)
+    if not target or not target:IsA("Model") then return end
+    if target:FindFirstChild("BinBellHighlight") then return end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "BinBellHighlight"
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = target
+    
+    table.insert(ESPHighlights, highlight)
+end
+
+local function ClearHighlights()
+    for _, h in pairs(ESPHighlights) do
+        if h and h.Parent then
+            h:Destroy()
+        end
+    end
+    ESPHighlights = {}
+end
+
+local function StartESP()
+    if Connections.ESP then return end
+    
+    Connections.ESP = RunService.RenderStepped:Connect(function()
+        -- ESP quái
+        if Settings.ESPEnemies then
+            for _, enemy in pairs(workspace.Enemies:GetChildren()) do
+                if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
+                    if enemy.Humanoid.Health > 0 then
+                        if not enemy:FindFirstChild("BinBellHighlight") then
+                            AddHighlight(enemy, Color3.fromRGB(255, 0, 0))
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- ESP người chơi
+        if Settings.ESPPlayers then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local char = player.Character
+                    if char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+                        if char.Humanoid.Health > 0 then
+                            if not char:FindFirstChild("BinBellHighlight") then
+                                AddHighlight(char, Color3.fromRGB(0, 255, 255))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function StopESP()
+    ClearHighlights()
+    if Connections.ESP then
+        Connections.ESP:Disconnect()
+        Connections.ESP = nil
+    end
+end
+
+-- ============================================
+-- CHỐNG AFK
+-- ============================================
+local function StartAntiAFK()
+    if Connections.AntiAFK then return end
+    
+    Connections.AntiAFK = RunService.RenderStepped:Connect(function()
+        if not Settings.AntiAFK then return end
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, nil)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, nil)
+    end)
+end
+
+local function StopAntiAFK()
+    if Connections.AntiAFK then
+        Connections.AntiAFK:Disconnect()
+        Connections.AntiAFK = nil
+    end
+end
+
+-- ============================================
+-- UI KIỂU REDZ HUB
+-- ============================================
+local UI = {
+    ScreenGui = nil,
+    MainFrame = nil,
+    MenuOpen = false
+}
+
+function UI:CreateToggle(parent, name, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 35)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 3)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -50, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 40, 0, 22)
+    button.Position = UDim2.new(1, -45, 0, 6)
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    button.Text = "OFF"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 10
+    button.BorderSizePixel = 0
+    button.Parent = frame
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 3)
+    buttonCorner.Parent = button
+    
+    local state = false
+    
+    button.MouseButton1Click:Connect(function()
+        state = not state
+        button.BackgroundColor3 = state and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(60, 60, 60)
+        button.Text = state and "ON" or "OFF"
+        
+        if callback then
+            callback(state)
+        end
+    end)
+end
+
+function UI:CreateSection(parent, name)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, 0, 0, 25)
+    section.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    section.BorderSizePixel = 0
+    section.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 3)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 0, 0)
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+end
+
+function UI:Initialize()
+    -- ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellRedz"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 100
+    screenGui.Parent = CoreGui
+    
+    -- Watermark kiểu Redz
+    local watermark = Instance.new("TextButton")
+    watermark.Size = UDim2.new(0, 110, 0, 25)
+    watermark.Position = UDim2.new(0, 5, 0, 5)
+    watermark.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    watermark.BorderSizePixel = 0
+    watermark.Text = "BIN BELL"
+    watermark.TextColor3 = Color3.fromRGB(255, 0, 0)
+    watermark.Font = Enum.Font.GothamBlack
+    watermark.TextSize = 11
+    watermark.Parent = screenGui
+    
+    local watermarkCorner = Instance.new("UICorner")
+    watermarkCorner.CornerRadius = UDim.new(0, 3)
+    watermarkCorner.Parent = watermark
+    
+    local watermarkStroke = Instance.new("UIStroke")
+    watermarkStroke.Color = Color3.fromRGB(255, 0, 0)
+    watermarkStroke.Thickness = 1
+    watermarkStroke.Parent = watermark
+    
+    -- Main Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 300, 0, 350)
+    mainFrame.Position = UDim2.new(0.5, -150, 0.5, -175)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 5)
+    mainCorner.Parent = mainFrame
+    
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Color = Color3.fromRGB(255, 0, 0)
+    mainStroke.Thickness = 1.5
+    mainStroke.Parent = mainFrame
+    
+    -- Title
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 35)
+    titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.Position = UDim2.new(0, 15, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "BIN BELL HUB"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 15
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 25, 0, 22)
+    closeBtn.Position = UDim2.new(1, -30, 0, 6)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 12
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Parent = titleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 3)
+    closeCorner.Parent = closeBtn
+    
+    -- Content
+    local contentFrame = Instance.new("ScrollingFrame")
+    contentFrame.Size = UDim2.new(1, -10, 1, -45)
+    contentFrame.Position = UDim2.new(0, 5, 0, 40)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.ScrollBarThickness = 2
+    contentFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 0, 0)
+    contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    contentFrame.Parent = mainFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 3)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Top
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = contentFrame
+    
+    self.ScreenGui = screenGui
+    self.MainFrame = mainFrame
+    self.Watermark = watermark
+    
+    -- Watermark click
+    watermark.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    -- Tạo sections
+    UI:CreateSection(contentFrame, "FARM")
+    
+    UI:CreateToggle(contentFrame, "Auto Farm", function(value)
+        Settings.AutoFarm = value
+        if value then
+            AutoFarm:Start()
+            Notify("BIN BELL", "Auto Farm đã bật!")
+        else
+            AutoFarm:Stop()
+            Notify("BIN BELL", "Auto Farm đã tắt!")
+        end
+    end)
+    
+    UI:CreateToggle(contentFrame, "Đánh Siêu Nhanh", function(value)
+        Settings.FastAttack = value
+        if value then
+            Settings.AttackDelay = 0.01
+            Notify("BIN BELL", "Đánh siêu nhanh đã bật!")
+        else
+            Settings.AttackDelay = 0.3
+            Notify("BIN BELL", "Đánh siêu nhanh đã tắt!")
+        end
+    end)
+    
+    UI:CreateToggle(contentFrame, "Siêu Thanh Tấn Công", function(value)
+        Settings.SuperAttack = value
+        if value then
+            Settings.AttackDelay = 0.001
+            Notify("BIN BELL", "Siêu thanh đã bật!")
+        else
+            Settings.AttackDelay = 0.3
+            Notify("BIN BELL", "Siêu thanh đã tắt!")
+        end
+    end)
+    
+    UI:CreateSection(contentFrame, "ESP")
+    
+    UI:CreateToggle(contentFrame, "ESP Quái Vật", function(value)
+        Settings.ESPEnemies = value
+        if value then
+            StartESP()
+        else
+            if not Settings.ESPPlayers then
+                StopESP()
+            end
+        end
+    end)
+    
+    UI:CreateToggle(contentFrame, "ESP Người Chơi", function(value)
+        Settings.ESPPlayers = value
+        if value then
+            StartESP()
+        else
+            if not Settings.ESPEnemies then
+                StopESP()
+            end
+        end
+    end)
+    
+    UI:CreateSection(contentFrame, "KHÁC")
+    
+    UI:CreateToggle(contentFrame, "Chống AFK", function(value)
+        Settings.AntiAFK = value
+        if value then
+            StartAntiAFK()
+        else
+            StopAntiAFK()
+        end
+    end)
+end
+
+function UI:ToggleMenu()
+    self.MenuOpen = not self.MenuOpen
+    self.MainFrame.Visible = self.MenuOpen
+end
+
+-- ============================================
+-- KHỞI ĐỘNG
+-- ============================================
+UI:Initialize()
+Notify("BIN BELL", "Script đã tải! Bấm watermark để mở menu", 3)
+
+print("BIN BELL HUB - Loaded")
+print("Style: Redz Hub")
+print("Tác giả: Axiom")
