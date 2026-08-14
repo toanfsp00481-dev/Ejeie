@@ -1,0 +1,553 @@
+--[[
+    BIN BELL - Mobile Activation Handler
+    Version: 4.2.0
+    Target: Mobile Executors (Delta, Codex, Hydrogen, Arceus X)
+    Activation: Auto-inject on script execution
+    Menu Toggle: Tap BIN BELL watermark (top-left)
+]]
+
+local BinBellMobile = {
+    Version = "4.2.0",
+    Executor = identifyexecutor and identifyexecutor() or "Unknown Mobile",
+    IsMobile = true,
+    MenuOpen = false,
+    TouchInput = nil,
+    Connections = {}
+}
+
+-- // Mobile Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- // Mobile Detection & Optimization
+local function detectMobileEnvironment()
+    local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+    local isTablet = UserInputService.TouchEnabled and UserInputService.KeyboardEnabled
+    
+    return {
+        IsMobile = isMobile,
+        IsTablet = isTablet,
+        TouchEnabled = UserInputService.TouchEnabled,
+        ScreenSize = Camera.ViewportSize,
+        SafeArea = UserInputService:GetGuiInset()
+    }
+end
+
+local MobileEnv = detectMobileEnvironment()
+
+-- // Mobile Notification System
+local MobileNotifications = {
+    Queue = {},
+    Active = {},
+    ScreenGui = nil,
+    MaxVisible = 3,
+    TouchConnections = {}
+}
+
+function MobileNotifications:Initialize()
+    if self.ScreenGui then return end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellMobileNotifications"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 998
+    screenGui.Parent = CoreGui
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 5)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Top
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = screenGui
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, 50)
+    padding.Parent = screenGui
+    
+    self.ScreenGui = screenGui
+    
+    -- Queue processor
+    task.spawn(function()
+        while true do
+            if #self.Queue > 0 and #self.Active < self.MaxVisible then
+                local notif = table.remove(self.Queue, 1)
+                self:Display(notif)
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function MobileNotifications:Notify(title, message, duration)
+    self:Initialize()
+    table.insert(self.Queue, {
+        Title = title,
+        Message = message,
+        Duration = duration or 3,
+        Timestamp = os.clock()
+    })
+end
+
+function MobileNotifications:Display(notif)
+    if not self.ScreenGui then return end
+    
+    local frame = Instance.new("Frame")
+    frame.Name = "MobileNotif"
+    frame.Size = UDim2.new(0, 280, 0, 70)
+    frame.Position = UDim2.new(0.5, -140, 0, -70)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    frame.BorderSizePixel = 0
+    frame.ClipsDescendants = true
+    frame.Parent = self.ScreenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
+    
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 3, 1, 0)
+    accentBar.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = frame
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -15, 0, 25)
+    titleLabel.Position = UDim2.new(0, 12, 0, 8)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = notif.Title
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = frame
+    
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Size = UDim2.new(1, -15, 0, 30)
+    messageLabel.Position = UDim2.new(0, 12, 0, 35)
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Text = notif.Message
+    messageLabel.TextColor3 = Color3.fromRGB(170, 170, 170)
+    messageLabel.Font = Enum.Font.Gotham
+    messageLabel.TextSize = 11
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.TextWrapped = true
+    messageLabel.Parent = frame
+    
+    self.Active[frame] = true
+    
+    -- Animate in
+    local tweenIn = TweenService:Create(frame,
+        TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        {Position = UDim2.new(0.5, -140, 0, 10)}
+    )
+    tweenIn:Play()
+    
+    tweenIn.Completed:Connect(function()
+        task.delay(notif.Duration, function()
+            local tweenOut = TweenService:Create(frame,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                {Position = UDim2.new(0.5, -140, 0, -70)}
+            )
+            tweenOut:Play()
+            tweenOut.Completed:Connect(function()
+                self.Active[frame] = nil
+                frame:Destroy()
+            end)
+        end)
+    end)
+end
+
+-- // Mobile Menu System
+local BinBellMobileMenu = {
+    Loaded = false,
+    Tabs = {},
+    CurrentTab = nil,
+    MenuOpen = false,
+    Watermark = nil,
+    MainFrame = nil
+}
+
+function BinBellMobileMenu:Initialize()
+    if self.Loaded then return end
+    self.Loaded = true
+    
+    MobileNotifications:Initialize()
+    
+    -- Main ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellMobile"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 100
+    screenGui.Parent = CoreGui
+    
+    -- Mobile watermark (tap to open menu)
+    local watermark = Instance.new("TextButton")
+    watermark.Name = "MobileWatermark"
+    watermark.Size = UDim2.new(0, 130, 0, 30)
+    watermark.Position = UDim2.new(0, 5, 0, 5)
+    watermark.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    watermark.BorderSizePixel = 0
+    watermark.Text = "🔔 BIN BELL"
+    watermark.TextColor3 = Color3.fromRGB(255, 140, 0)
+    watermark.Font = Enum.Font.GothamBlack
+    watermark.TextSize = 12
+    watermark.Parent = screenGui
+    
+    local watermarkCorner = Instance.new("UICorner")
+    watermarkCorner.CornerRadius = UDim.new(0, 8)
+    watermarkCorner.Parent = watermark
+    
+    local watermarkStroke = Instance.new("UIStroke")
+    watermarkStroke.Color = Color3.fromRGB(255, 140, 0)
+    watermarkStroke.Thickness = 1.5
+    watermarkStroke.Transparency = 0.3
+    watermarkStroke.Parent = watermark
+    
+    self.Watermark = watermark
+    
+    -- Main menu frame (hidden initially)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MobileMenu"
+    mainFrame.Size = UDim2.new(1, -20, 0, 500)
+    mainFrame.Position = UDim2.new(0, 10, 0, -500)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ClipsDescendants = true
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 15)
+    mainCorner.Parent = mainFrame
+    
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Color = Color3.fromRGB(255, 140, 0)
+    mainStroke.Thickness = 2
+    mainStroke.Transparency = 0.3
+    mainStroke.Parent = mainFrame
+    
+    -- Title bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 45)
+    titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 15)
+    titleCorner.Parent = titleBar
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -50, 0, 30)
+    titleLabel.Position = UDim2.new(0, 20, 0, 8)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "BIN BELL MOBILE"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 140, 0)
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 18
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+    
+    -- Close button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 35, 0, 30)
+    closeBtn.Position = UDim2.new(1, -40, 0, 8)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    closeBtn.Text = "×"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 20
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Parent = titleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeBtn
+    
+    -- Tab container (horizontal scroll for mobile)
+    local tabContainer = Instance.new("ScrollingFrame")
+    tabContainer.Name = "MobileTabContainer"
+    tabContainer.Size = UDim2.new(1, 0, 0, 45)
+    tabContainer.Position = UDim2.new(0, 0, 0, 48)
+    tabContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    tabContainer.BorderSizePixel = 0
+    tabContainer.ScrollBarThickness = 0
+    tabContainer.ScrollingDirection = Enum.ScrollingDirection.X
+    tabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    tabContainer.Parent = mainFrame
+    
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Padding = UDim.new(0, 5)
+    tabLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabLayout.Parent = tabContainer
+    
+    local tabPadding = Instance.new("UIPadding")
+    tabPadding.PaddingLeft = UDim.new(0, 8)
+    tabPadding.PaddingRight = UDim.new(0, 8)
+    tabPadding.Parent = tabContainer
+    
+    -- Content container
+    local contentContainer = Instance.new("ScrollingFrame")
+    contentContainer.Name = "MobileContent"
+    contentContainer.Size = UDim2.new(1, -10, 1, -95)
+    contentContainer.Position = UDim2.new(0, 5, 0, 95)
+    contentContainer.BackgroundTransparency = 1
+    contentContainer.ScrollBarThickness = 3
+    contentContainer.ScrollBarImageColor3 = Color3.fromRGB(255, 140, 0)
+    contentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    contentContainer.Parent = mainFrame
+    
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 5)
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = contentContainer
+    
+    self.ScreenGui = screenGui
+    self.MainFrame = mainFrame
+    self.TabContainer = tabContainer
+    self.ContentContainer = contentContainer
+    self.TabLayout = tabLayout
+    self.ContentLayout = contentLayout
+    
+    -- Watermark tap handler
+    watermark.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    -- Close button
+    closeBtn.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    MobileNotifications:Notify("BIN BELL", "Tap the watermark to open menu", 4)
+    
+    return self
+end
+
+function BinBellMobileMenu:ToggleMenu()
+    self.MenuOpen = not self.MenuOpen
+    
+    if self.MenuOpen then
+        self.MainFrame.Visible = true
+        local tween = TweenService:Create(self.MainFrame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0, 10, 0, 10)}
+        )
+        tween:Play()
+    else
+        local tween = TweenService:Create(self.MainFrame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            {Position = UDim2.new(0, 10, 0, -500)}
+        )
+        tween:Play()
+        tween.Completed:Connect(function()
+            self.MainFrame.Visible = false
+        end)
+    end
+end
+
+function BinBellMobileMenu:CreateTab(name)
+    local tab = {
+        Name = name,
+        Button = nil,
+        Content = nil,
+        Layout = nil,
+        Sections = {}
+    }
+    
+    -- Tab button
+    local tabButton = Instance.new("TextButton")
+    tabButton.Name = name .. "MobileTab"
+    tabButton.Size = UDim2.new(0, 80, 0, 35)
+    tabButton.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    tabButton.Text = name
+    tabButton.TextColor3 = Color3.fromRGB(150, 150, 160)
+    tabButton.Font = Enum.Font.GothamBold
+    tabButton.TextSize = 11
+    tabButton.BorderSizePixel = 0
+    tabButton.Parent = self.TabContainer
+    
+    local tabCorner = Instance.new("UICorner")
+    tabCorner.CornerRadius = UDim.new(0, 8)
+    tabCorner.Parent = tabButton
+    
+    -- Content frame
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = name .. "MobileContent"
+    contentFrame.Size = UDim2.new(1, 0, 0, 0)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Visible = false
+    contentFrame.Parent = self.ContentContainer
+    
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 5)
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = contentFrame
+    
+    tab.Button = tabButton
+    tab.Content = contentFrame
+    tab.Layout = contentLayout
+    
+    tabButton.MouseButton1Click:Connect(function()
+        self:SelectTab(tab)
+    end)
+    
+    table.insert(self.Tabs, tab)
+    
+    if #self.Tabs == 1 then
+        self:SelectTab(tab)
+    end
+    
+    return tab
+end
+
+function BinBellMobileMenu:SelectTab(tab)
+    if self.CurrentTab then
+        self.CurrentTab.Content.Visible = false
+        self.CurrentTab.Button.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        self.CurrentTab.Button.TextColor3 = Color3.fromRGB(150, 150, 160)
+    end
+    
+    self.CurrentTab = tab
+    tab.Content.Visible = true
+    tab.Button.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+    tab.Button.TextColor3 = Color3.fromRGB(15, 15, 20)
+end
+
+function BinBellMobileMenu:CreateToggle(section, name, default, callback)
+    local toggle = {
+        Name = name,
+        Value = default or false,
+        Callback = callback
+    }
+    
+    local toggleFrame = Instance.new("Frame")
+    toggleFrame.Size = UDim2.new(1, 0, 0, 40)
+    toggleFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    toggleFrame.BorderSizePixel = 0
+    toggleFrame.Parent = section.Content
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 8)
+    toggleCorner.Parent = toggleFrame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -55, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = toggleFrame
+    
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 45, 0, 22)
+    toggleButton.Position = UDim2.new(1, -50, 0, 9)
+    toggleButton.BackgroundColor3 = toggle.Value and Color3.fromRGB(50, 200, 100) or Color3.fromRGB(60, 60, 70)
+    toggleButton.Text = ""
+    toggleButton.BorderSizePixel = 0
+    toggleButton.Parent = toggleFrame
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggleButton
+    
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = toggle.Value and UDim2.new(0, 25, 0, 2) or UDim2.new(0, 2, 0, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggleButton
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local function updateToggle()
+        toggle.Value = not toggle.Value
+        toggleButton.BackgroundColor3 = toggle.Value and Color3.fromRGB(50, 200, 100) or Color3.fromRGB(60, 60, 70)
+        knob.Position = toggle.Value and UDim2.new(0, 25, 0, 2) or UDim2.new(0, 2, 0, 2)
+        
+        if callback then
+            task.spawn(callback, toggle.Value)
+        end
+    end
+    
+    toggleButton.MouseButton1Click:Connect(updateToggle)
+    
+    table.insert(section.Elements, toggle)
+    return toggle
+end
+
+-- // Auto-Initialize on Mobile
+local function initializeBinBellMobile()
+    MobileNotifications:Notify("BIN BELL", "Initializing mobile menu...", 2)
+    
+    -- Create mobile menu
+    BinBellMobileMenu:Initialize()
+    
+    -- Create tabs
+    local mainTab = BinBellMobileMenu:CreateTab("Main")
+    local farmTab = BinBellMobileMenu:CreateTab("Farm")
+    local teleportTab = BinBellMobileMenu:CreateTab("Teleport")
+    local fruitTab = BinBellMobileMenu:CreateTab("Fruits")
+    
+    -- Main tab sections
+    local mainSection = BinBellMobileMenu:CreateSection(mainTab, "Auto Farm")
+    BinBellMobileMenu:CreateToggle(mainSection, "Auto Farm", false, function(value)
+        AutoFarm.Enabled = value
+        MobileNotifications:Notify("BIN BELL", value and "Auto Farm enabled" or "Auto Farm disabled", 2)
+    end)
+    
+    BinBellMobileMenu:CreateToggle(mainSection, "Auto Quest", false, function(value)
+        AutoQuest.Enabled = value
+        MobileNotifications:Notify("BIN BELL", value and "Auto Quest enabled" or "Auto Quest disabled", 2)
+    end)
+    
+    -- Farm tab
+    local farmSection = BinBellMobileMenu:CreateSection(farmTab, "Farming")
+    BinBellMobileMenu:CreateToggle(farmSection, "Auto Attack", false, function(value)
+        -- Auto attack logic
+    end)
+    
+    -- Teleport tab
+    local teleportSection = BinBellMobileMenu:CreateSection(teleportTab, "Teleport")
+    BinBellMobileMenu:CreateToggle(teleportSection, "Teleport GUI", false, function(value)
+        -- Teleport GUI toggle
+    end)
+    
+    -- Fruit tab
+    local fruitSection = BinBellMobileMenu:CreateSection(fruitTab, "Fruit Sniper")
+    BinBellMobileMenu:CreateToggle(fruitSection, "Auto Snipe", false, function(value)
+        -- Fruit sniper logic
+    end)
+    
+    MobileNotifications:Notify("BIN BELL", "Mobile menu ready! Tap the watermark to open", 4)
+end
+
+-- // Execute on mobile
+if MobileEnv.TouchEnabled then
+    initializeBinBellMobile()
+else
+    -- Fallback for PC if somehow loaded
+    MobileNotifications:Notify("BIN BELL", "PC detected, use desktop version", 3)
+end
