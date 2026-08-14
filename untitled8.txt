@@ -1,0 +1,896 @@
+--[[
+    BIN BELL - Blox Fruits Mobile
+    Version: 12.0.0 - Auto Damage Fix
+    Tác giả: Axiom
+    Sửa: Auto Damage kill quái đàng hoàng qua remote, giữ nguyên menu cũ
+]]
+
+-- ============================================
+-- DỊCH VỤ CƠ BẢN
+-- ============================================
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- ============================================
+-- CÀI ĐẶT
+-- ============================================
+local Settings = {
+    AutoFarm = false,
+    AutoDamage = false,
+    FastAttack = false,
+    FixLag = false,
+    ESPPlayers = false,
+    ESPEnemies = false,
+    AntiAFK = false,
+    AttackRange = 30,
+    DamageRange = 50,
+    AttackDelay = 0.1
+}
+
+local Connections = {}
+local ESPHighlights = {}
+
+-- ============================================
+-- HÀM THÔNG BÁO
+-- ============================================
+function Notify(title, message, duration)
+    duration = duration or 2
+    
+    local screenGui = CoreGui:FindFirstChild("BinBellNotif")
+    if not screenGui then
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "BinBellNotif"
+        screenGui.ResetOnSpawn = false
+        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        screenGui.DisplayOrder = 999
+        screenGui.Parent = CoreGui
+    end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 260, 0, 50)
+    frame.Position = UDim2.new(0.5, -130, 0, -50)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = frame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 0, 0)
+    stroke.Thickness = 1
+    stroke.Parent = frame
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 18)
+    title.Position = UDim2.new(0, 10, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = title
+    title.TextColor3 = Color3.fromRGB(255, 0, 0)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+    
+    local msg = Instance.new("TextLabel")
+    msg.Size = UDim2.new(1, -20, 0, 20)
+    msg.Position = UDim2.new(0, 10, 0, 25)
+    msg.BackgroundTransparency = 1
+    msg.Text = message
+    msg.TextColor3 = Color3.fromRGB(200, 200, 200)
+    msg.Font = Enum.Font.Gotham
+    msg.TextSize = 10
+    msg.TextXAlignment = Enum.TextXAlignment.Left
+    msg.TextWrapped = true
+    msg.Parent = frame
+    
+    local tweenIn = TweenService:Create(frame,
+        TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        {Position = UDim2.new(0.5, -130, 0, 10)}
+    )
+    tweenIn:Play()
+    
+    tweenIn.Completed:Connect(function()
+        task.delay(duration, function()
+            local tweenOut = TweenService:Create(frame,
+                TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                {Position = UDim2.new(0.5, -130, 0, -50)}
+            )
+            tweenOut:Play()
+            tweenOut.Completed:Connect(function()
+                frame:Destroy()
+            end)
+        end)
+    end)
+end
+
+-- ============================================
+-- AUTO DAMAGE - KILL QUÁI ĐÀNG HOÀNG
+-- ============================================
+local AutoDamage = {
+    Connection = nil,
+    LastDamage = 0,
+    DamageAmount = 999999
+}
+
+function AutoDamage:FindDamageRemote()
+    -- Tìm remote damage hợp lệ trong ReplicatedStorage
+    for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local name = obj.Name:lower()
+            if name:find("damage") or name:find("hit") or name:find("attack") or name:find("combat") or name:find("deal") then
+                return obj
+            end
+        end
+    end
+    
+    -- Tìm trong workspace
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local name = obj.Name:lower()
+            if name:find("damage") or name:find("hit") or name:find("attack") or name:find("combat") then
+                return obj
+            end
+        end
+    end
+    
+    -- Tìm trong LocalPlayer
+    local character = LocalPlayer.Character
+    if character then
+        for _, obj in pairs(character:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local name = obj.Name:lower()
+                if name:find("damage") or name:find("hit") or name:find("attack") then
+                    return obj
+                end
+            end
+        end
+    end
+    
+    return nil
+end
+
+function AutoDamage:DamageEnemy(enemy)
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
+    
+    -- Cách 1: Dùng remote damage hợp lệ
+    local damageRemote = self:FindDamageRemote()
+    if damageRemote then
+        if damageRemote:IsA("RemoteEvent") then
+            damageRemote:FireServer(enemy, self.DamageAmount)
+            return true
+        elseif damageRemote:IsA("RemoteFunction") then
+            damageRemote:InvokeServer(enemy, self.DamageAmount)
+            return true
+        end
+    end
+    
+    -- Cách 2: Dùng tool đánh quái
+    for _, tool in pairs(character:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            -- Dịch chuyển tool đến quái
+            tool.Handle.CFrame = enemy.HumanoidRootPart.CFrame
+            tool:Activate()
+            task.wait(0.01)
+            tool:Deactivate()
+            return true
+        end
+    end
+    
+    -- Cách 3: Trang bị tool từ backpack rồi đánh
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+                humanoid:EquipTool(tool)
+                task.wait(0.01)
+                tool:Activate()
+                task.wait(0.01)
+                tool:Deactivate()
+                return true
+            end
+        end
+    end
+    
+    -- Cách 4: Dùng RemoteEvent tấn công thông thường
+    local attackRemotes = {"MeleeAttack", "Attack", "Click", "Hit", "Swing", "Punch", "Combat"}
+    for _, remoteName in pairs(attackRemotes) do
+        local remote = character:FindFirstChild(remoteName) or LocalPlayer.Backpack:FindFirstChild(remoteName)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer(enemy)
+            return true
+        end
+    end
+    
+    return false
+end
+
+function AutoDamage:Start()
+    if self.Connection then return end
+    
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not Settings.AutoDamage then return end
+        
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        
+        local rootPart = character.HumanoidRootPart
+        local currentTime = os.clock()
+        
+        -- Kiểm tra delay
+        if currentTime - self.LastDamage < Settings.AttackDelay then return end
+        
+        -- Tìm tất cả quái trong phạm vi
+        local damagedEnemy = false
+        
+        -- Tìm trong workspace.Enemies
+        for _, enemy in pairs(workspace.Enemies:GetChildren()) do
+            if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
+                if enemy.Humanoid.Health > 0 then
+                    local distance = (rootPart.Position - enemy.HumanoidRootPart.Position).Magnitude
+                    
+                    if distance <= Settings.DamageRange then
+                        if self:DamageEnemy(enemy) then
+                            self.LastDamage = currentTime
+                            damagedEnemy = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Tìm thêm trong workspace
+        if not damagedEnemy then
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                    if obj.Humanoid.Health > 0 and obj ~= LocalPlayer.Character then
+                        local isPlayer = false
+                        for _, player in pairs(Players:GetPlayers()) do
+                            if player.Character == obj then
+                                isPlayer = true
+                                break
+                            end
+                        end
+                        
+                        if not isPlayer then
+                            local distance = (rootPart.Position - obj.HumanoidRootPart.Position).Magnitude
+                            
+                            if distance <= Settings.DamageRange then
+                                if self:DamageEnemy(obj) then
+                                    self.LastDamage = currentTime
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function AutoDamage:Stop()
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+end
+
+-- ============================================
+-- AUTO FARM - TỰ DỊCH CHUYỂN
+-- ============================================
+local AutoFarm = {
+    Connection = nil,
+    CurrentTarget = nil
+}
+
+function AutoFarm:FindNearestEnemy()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local rootPart = character.HumanoidRootPart
+    local nearestEnemy = nil
+    local nearestDistance = Settings.AttackRange
+    
+    for _, enemy in pairs(workspace.Enemies:GetChildren()) do
+        if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
+            if enemy.Humanoid.Health > 0 then
+                local distance = (rootPart.Position - enemy.HumanoidRootPart.Position).Magnitude
+                if distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestEnemy = enemy
+                end
+            end
+        end
+    end
+    
+    if not nearestEnemy then
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                if obj.Humanoid.Health > 0 and obj ~= LocalPlayer.Character then
+                    local isPlayer = false
+                    for _, player in pairs(Players:GetPlayers()) do
+                        if player.Character == obj then
+                            isPlayer = true
+                            break
+                        end
+                    end
+                    
+                    if not isPlayer then
+                        local distance = (rootPart.Position - obj.HumanoidRootPart.Position).Magnitude
+                        if distance < nearestDistance then
+                            nearestDistance = distance
+                            nearestEnemy = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return nearestEnemy
+end
+
+function AutoFarm:Start()
+    if self.Connection then return end
+    
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not Settings.AutoFarm then return end
+        
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then return end
+        
+        local rootPart = character.HumanoidRootPart
+        
+        local enemy = self:FindNearestEnemy()
+        
+        if enemy then
+            self.CurrentTarget = enemy
+            rootPart.CFrame = CFrame.new(enemy.HumanoidRootPart.Position + Vector3.new(0, 3, 2))
+            rootPart.CFrame = CFrame.lookAt(rootPart.Position, enemy.HumanoidRootPart.Position)
+        end
+    end)
+end
+
+function AutoFarm:Stop()
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+    self.CurrentTarget = nil
+end
+
+-- ============================================
+-- FIX LAG
+-- ============================================
+local FixLag = {
+    Enabled = false,
+    OriginalGraphics = {}
+}
+
+function FixLag:Enable()
+    if self.Enabled then return end
+    self.Enabled = true
+    
+    self.OriginalGraphics = {
+        GlobalShadows = Lighting.GlobalShadows,
+        Brightness = Lighting.Brightness,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart
+    }
+    
+    Lighting.GlobalShadows = false
+    Lighting.Brightness = 1.5
+    Lighting.FogEnd = 100
+    Lighting.FogStart = 50
+    
+    task.spawn(function()
+        while self.Enabled do
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if obj:IsA("Decal") or obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Texture") then
+                    obj:Destroy()
+                end
+            end
+            task.wait(5)
+        end
+    end)
+    
+    Notify("BIN BELL", "Fix Lag đã bật!")
+end
+
+function FixLag:Disable()
+    if not self.Enabled then return end
+    self.Enabled = false
+    
+    if self.OriginalGraphics.GlobalShadows ~= nil then
+        Lighting.GlobalShadows = self.OriginalGraphics.GlobalShadows
+        Lighting.Brightness = self.OriginalGraphics.Brightness
+        Lighting.FogEnd = self.OriginalGraphics.FogEnd
+        Lighting.FogStart = self.OriginalGraphics.FogStart
+    end
+    
+    Notify("BIN BELL", "Fix Lag đã tắt!")
+end
+
+-- ============================================
+-- ESP
+-- ============================================
+local function AddHighlight(target, color)
+    if not target or not target:IsA("Model") then return end
+    if target:FindFirstChild("BinBellHighlight") then return end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "BinBellHighlight"
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = target
+    
+    table.insert(ESPHighlights, highlight)
+end
+
+local function ClearHighlights()
+    for _, h in pairs(ESPHighlights) do
+        if h and h.Parent then
+            h:Destroy()
+        end
+    end
+    ESPHighlights = {}
+end
+
+local function StartESP()
+    if Connections.ESP then return end
+    
+    Connections.ESP = RunService.RenderStepped:Connect(function()
+        if Settings.ESPEnemies then
+            for _, enemy in pairs(workspace.Enemies:GetChildren()) do
+                if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") then
+                    if enemy.Humanoid.Health > 0 then
+                        if not enemy:FindFirstChild("BinBellHighlight") then
+                            AddHighlight(enemy, Color3.fromRGB(255, 0, 0))
+                        end
+                    end
+                end
+            end
+        end
+        
+        if Settings.ESPPlayers then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local char = player.Character
+                    if char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+                        if char.Humanoid.Health > 0 then
+                            if not char:FindFirstChild("BinBellHighlight") then
+                                AddHighlight(char, Color3.fromRGB(0, 255, 255))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function StopESP()
+    ClearHighlights()
+    if Connections.ESP then
+        Connections.ESP:Disconnect()
+        Connections.ESP = nil
+    end
+end
+
+-- ============================================
+-- CHỐNG AFK
+-- ============================================
+local function StartAntiAFK()
+    if Connections.AntiAFK then return end
+    
+    Connections.AntiAFK = RunService.RenderStepped:Connect(function()
+        if not Settings.AntiAFK then return end
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, nil)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, nil)
+    end)
+end
+
+local function StopAntiAFK()
+    if Connections.AntiAFK then
+        Connections.AntiAFK:Disconnect()
+        Connections.AntiAFK = nil
+    end
+end
+
+-- ============================================
+-- UI
+-- ============================================
+local UI = {
+    ScreenGui = nil,
+    MainFrame = nil,
+    MenuOpen = false
+}
+
+function UI:CreateToggle(parent, name, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 35)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 3)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -50, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 40, 0, 22)
+    button.Position = UDim2.new(1, -45, 0, 6)
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    button.Text = "OFF"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 10
+    button.BorderSizePixel = 0
+    button.Parent = frame
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 3)
+    buttonCorner.Parent = button
+    
+    local state = false
+    
+    button.MouseButton1Click:Connect(function()
+        state = not state
+        button.BackgroundColor3 = state and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(60, 60, 60)
+        button.Text = state and "ON" or "OFF"
+        
+        if callback then
+            callback(state)
+        end
+    end)
+end
+
+function UI:CreateSlider(parent, name, min, max, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 3)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, 3)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. tostring(default)
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -20, 0, 6)
+    sliderBg.Position = UDim2.new(0, 10, 0, 28)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    sliderBg.BorderSizePixel = 0
+    sliderBg.Parent = frame
+    
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(1, 0)
+    sliderCorner.Parent = sliderBg
+    
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    fill.BorderSizePixel = 0
+    fill.Parent = sliderBg
+    
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = fill
+    
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = UDim2.new((default - min) / (max - min), -7, 0, -4)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = sliderBg
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local dragging = false
+    
+    local function updateFromInput(input)
+        local relativeX = input.Position.X - sliderBg.AbsolutePosition.X
+        local percent = math.clamp(relativeX / sliderBg.AbsoluteSize.X, 0, 1)
+        local value = min + (max - min) * percent
+        
+        fill.Size = UDim2.new(percent, 0, 1, 0)
+        knob.Position = UDim2.new(percent, -7, 0, -4)
+        label.Text = name .. ": " .. string.format("%.0f", value)
+        
+        if callback then
+            callback(value)
+        end
+    end
+    
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            updateFromInput(input)
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateFromInput(input)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+function UI:CreateSection(parent, name)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, 0, 0, 25)
+    section.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    section.BorderSizePixel = 0
+    section.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 3)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 0, 0)
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+end
+
+function UI:Initialize()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellRedz"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 100
+    screenGui.Parent = CoreGui
+    
+    local watermark = Instance.new("TextButton")
+    watermark.Size = UDim2.new(0, 110, 0, 25)
+    watermark.Position = UDim2.new(0, 5, 0, 5)
+    watermark.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    watermark.BorderSizePixel = 0
+    watermark.Text = "BIN BELL"
+    watermark.TextColor3 = Color3.fromRGB(255, 0, 0)
+    watermark.Font = Enum.Font.GothamBlack
+    watermark.TextSize = 11
+    watermark.Parent = screenGui
+    
+    local watermarkCorner = Instance.new("UICorner")
+    watermarkCorner.CornerRadius = UDim.new(0, 3)
+    watermarkCorner.Parent = watermark
+    
+    local watermarkStroke = Instance.new("UIStroke")
+    watermarkStroke.Color = Color3.fromRGB(255, 0, 0)
+    watermarkStroke.Thickness = 1
+    watermarkStroke.Parent = watermark
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 300, 0, 450)
+    mainFrame.Position = UDim2.new(0.5, -150, 0.5, -225)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 5)
+    mainCorner.Parent = mainFrame
+    
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Color = Color3.fromRGB(255, 0, 0)
+    mainStroke.Thickness = 1.5
+    mainStroke.Parent = mainFrame
+    
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 35)
+    titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.Position = UDim2.new(0, 15, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "BIN BELL HUB"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 15
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 25, 0, 22)
+    closeBtn.Position = UDim2.new(1, -30, 0, 6)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 12
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Parent = titleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 3)
+    closeCorner.Parent = closeBtn
+    
+    local contentFrame = Instance.new("ScrollingFrame")
+    contentFrame.Size = UDim2.new(1, -10, 1, -45)
+    contentFrame.Position = UDim2.new(0, 5, 0, 40)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.ScrollBarThickness = 2
+    contentFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 0, 0)
+    contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    contentFrame.Parent = mainFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 3)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Top
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = contentFrame
+    
+    self.ScreenGui = screenGui
+    self.MainFrame = mainFrame
+    self.Watermark = watermark
+    
+    watermark.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    -- Tạo UI
+    UI:CreateSection(contentFrame, "FARM")
+    
+    UI:CreateToggle(contentFrame, "Auto Farm", function(value)
+        Settings.AutoFarm = value
+        if value then
+            AutoFarm:Start()
+            Notify("BIN BELL", "Auto Farm đã bật!")
+        else
+            AutoFarm:Stop()
+            Notify("BIN BELL", "Auto Farm đã tắt!")
+        end
+    end)
+    
+    UI:CreateToggle(contentFrame, "Tự Gây Damage", function(value)
+        Settings.AutoDamage = value
+        if value then
+            AutoDamage:Start()
+            Notify("BIN BELL", "Tự gây damage đã bật!")
+        else
+            AutoDamage:Stop()
+            Notify("BIN BELL", "Tự gây damage đã tắt!")
+        end
+    end)
+    
+    UI:CreateSlider(contentFrame, "Khoảng Cách Farm", 10, 100, 30, function(value)
+        Settings.AttackRange = value
+    end)
+    
+    UI:CreateSlider(contentFrame, "Khoảng Cách Damage", 10, 200, 50, function(value)
+        Settings.DamageRange = value
+    end)
+    
+    UI:CreateToggle(contentFrame, "Đánh Siêu Nhanh", function(value)
+        Settings.FastAttack = value
+        if value then
+            Settings.AttackDelay = 0.01
+        else
+            Settings.AttackDelay = 0.1
+        end
+    end)
+    
+    UI:CreateSection(contentFrame, "HIỆU SUẤT")
+    
+    UI:CreateToggle(contentFrame, "Fix Lag", function(value)
+        Settings.FixLag = value
+        if value then
+            FixLag:Enable()
+        else
+            FixLag:Disable()
+        end
+    end)
+    
+    UI:CreateSection(contentFrame, "ESP")
+    
+    UI:CreateToggle(contentFrame, "ESP Quái Vật", function(value)
+        Settings.ESPEnemies = value
+        if value then
+            StartESP()
+        else
+            if not Settings.ESPPlayers then
+                StopESP()
+            end
+        end
+    end)
+    
+    UI:CreateToggle(contentFrame, "ESP Người Chơi", function(value)
+        Settings.ESPPlayers = value
+        if value then
+            StartESP()
+        else
+            if not Settings.ESPEnemies then
+                StopESP()
+            end
+        end
+    end)
+    
+    UI:CreateSection(contentFrame, "KHÁC")
+    
+    UI:CreateToggle(contentFrame, "Chống AFK", function(value)
+        Settings.AntiAFK = value
+        if value then
+            StartAntiAFK()
+        else
+            StopAntiAFK()
+        end
+    end)
+end
+
+function UI:ToggleMenu()
+    self.MenuOpen = not self.MenuOpen
+    self.MainFrame.Visible = self.MenuOpen
+end
+
+-- ============================================
+-- KHỞI ĐỘNG
+-- ============================================
+UI:Initialize()
+Notify("BIN BELL", "Script đã tải! Bấm watermark để mở menu", 3)
+
+print("BIN BELL HUB v12.0 - Loaded")
+print("Auto Damage: Kill quái qua remote hợp lệ")
+print("Tác giả: Axiom")
