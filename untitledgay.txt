@@ -1,0 +1,756 @@
+--[[
+    BIN BELL - Blox Fruits Mobile Script
+    Version: 5.0.0
+    Author: Axiom
+    Target: Delta Executor, Codex, Hydrogen, Arceus X
+    Type: Full Feature Menu
+]]
+
+-- ============================================
+-- KHỞI TẠO DỊCH VỤ
+-- ============================================
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Workspace = workspace
+
+-- ============================================
+-- BIẾN TOÀN CỤC
+-- ============================================
+local BinBell = {
+    Version = "5.0.0",
+    Settings = {
+        AutoFarm = false,
+        AutoQuest = false,
+        AutoAttack = false,
+        TeleportGUI = false,
+        FruitSniper = false,
+        AntiAFK = false,
+        FastAttack = false,
+        SpeedHack = false
+    },
+    Connections = {},
+    Tabs = {},
+    CurrentTab = nil,
+    MenuOpen = false
+}
+
+-- ============================================
+-- HỆ THỐNG THÔNG BÁO
+-- ============================================
+local Notifications = {
+    ScreenGui = nil,
+    Active = {}
+}
+
+function Notifications:Initialize()
+    if self.ScreenGui then return end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellNotifs"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 999
+    screenGui.Parent = CoreGui
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 5)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Top
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = screenGui
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, 45)
+    padding.Parent = screenGui
+    
+    self.ScreenGui = screenGui
+end
+
+function Notifications:Notify(title, message, duration)
+    self:Initialize()
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 65)
+    frame.Position = UDim2.new(0.5, -150, 0, -65)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    frame.BorderSizePixel = 0
+    frame.ClipsDescendants = true
+    frame.Parent = self.ScreenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
+    
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 3, 1, 0)
+    accentBar.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = frame
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -15, 0, 22)
+    titleLabel.Position = UDim2.new(0, 12, 0, 6)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 13
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = frame
+    
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Size = UDim2.new(1, -15, 0, 28)
+    messageLabel.Position = UDim2.new(0, 12, 0, 30)
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Text = message
+    messageLabel.TextColor3 = Color3.fromRGB(170, 170, 170)
+    messageLabel.Font = Enum.Font.Gotham
+    messageLabel.TextSize = 11
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.TextWrapped = true
+    messageLabel.Parent = frame
+    
+    local tweenIn = TweenService:Create(frame,
+        TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        {Position = UDim2.new(0.5, -150, 0, 10)}
+    )
+    tweenIn:Play()
+    
+    tweenIn.Completed:Connect(function()
+        task.delay(duration or 3, function()
+            local tweenOut = TweenService:Create(frame,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                {Position = UDim2.new(0.5, -150, 0, -65)}
+            )
+            tweenOut:Play()
+            tweenOut.Completed:Connect(function()
+                frame:Destroy()
+            end)
+        end)
+    end)
+end
+
+-- ============================================
+-- HỆ THỐNG UI CHÍNH
+-- ============================================
+local UI = {
+    ScreenGui = nil,
+    MainFrame = nil,
+    Watermark = nil,
+    TabContainer = nil,
+    ContentContainer = nil,
+    TabLayout = nil
+}
+
+function UI:Initialize()
+    if self.ScreenGui then return end
+    
+    -- ScreenGui chính
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BinBellMain"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 100
+    screenGui.Parent = CoreGui
+    
+    -- Watermark
+    local watermark = Instance.new("TextButton")
+    watermark.Name = "Watermark"
+    watermark.Size = UDim2.new(0, 130, 0, 30)
+    watermark.Position = UDim2.new(0, 5, 0, 5)
+    watermark.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    watermark.BorderSizePixel = 0
+    watermark.Text = "🔔 BIN BELL"
+    watermark.TextColor3 = Color3.fromRGB(255, 140, 0)
+    watermark.Font = Enum.Font.GothamBlack
+    watermark.TextSize = 12
+    watermark.Parent = screenGui
+    
+    local watermarkCorner = Instance.new("UICorner")
+    watermarkCorner.CornerRadius = UDim.new(0, 8)
+    watermarkCorner.Parent = watermark
+    
+    local watermarkStroke = Instance.new("UIStroke")
+    watermarkStroke.Color = Color3.fromRGB(255, 140, 0)
+    watermarkStroke.Thickness = 1.5
+    watermarkStroke.Transparency = 0.3
+    watermarkStroke.Parent = watermark
+    
+    -- Main Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(1, -20, 0, 480)
+    mainFrame.Position = UDim2.new(0, 10, 0, -480)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ClipsDescendants = true
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 15)
+    mainCorner.Parent = mainFrame
+    
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Color = Color3.fromRGB(255, 140, 0)
+    mainStroke.Thickness = 2
+    mainStroke.Transparency = 0.3
+    mainStroke.Parent = mainFrame
+    
+    -- Title Bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 42)
+    titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 15)
+    titleCorner.Parent = titleBar
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -50, 0, 28)
+    titleLabel.Position = UDim2.new(0, 18, 0, 7)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "BIN BELL v" .. BinBell.Version
+    titleLabel.TextColor3 = Color3.fromRGB(255, 140, 0)
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 17
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 32, 0, 28)
+    closeBtn.Position = UDim2.new(1, -38, 0, 7)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    closeBtn.Text = "×"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 18
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Parent = titleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 7)
+    closeCorner.Parent = closeBtn
+    
+    -- Tab Container
+    local tabContainer = Instance.new("ScrollingFrame")
+    tabContainer.Name = "TabContainer"
+    tabContainer.Size = UDim2.new(1, 0, 0, 42)
+    tabContainer.Position = UDim2.new(0, 0, 0, 44)
+    tabContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    tabContainer.BorderSizePixel = 0
+    tabContainer.ScrollBarThickness = 0
+    tabContainer.ScrollingDirection = Enum.ScrollingDirection.X
+    tabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    tabContainer.Parent = mainFrame
+    
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Padding = UDim.new(0, 4)
+    tabLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabLayout.Parent = tabContainer
+    
+    local tabPadding = Instance.new("UIPadding")
+    tabPadding.PaddingLeft = UDim.new(0, 6)
+    tabPadding.PaddingRight = UDim.new(0, 6)
+    tabPadding.Parent = tabContainer
+    
+    -- Content Container
+    local contentContainer = Instance.new("ScrollingFrame")
+    contentContainer.Name = "ContentContainer"
+    contentContainer.Size = UDim2.new(1, -10, 1, -92)
+    contentContainer.Position = UDim2.new(0, 5, 0, 88)
+    contentContainer.BackgroundTransparency = 1
+    contentContainer.ScrollBarThickness = 3
+    contentContainer.ScrollBarImageColor3 = Color3.fromRGB(255, 140, 0)
+    contentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    contentContainer.Parent = mainFrame
+    
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 5)
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = contentContainer
+    
+    self.ScreenGui = screenGui
+    self.MainFrame = mainFrame
+    self.Watermark = watermark
+    self.TabContainer = tabContainer
+    self.ContentContainer = contentContainer
+    self.TabLayout = tabLayout
+    self.ContentLayout = contentLayout
+    
+    -- Watermark click
+    watermark.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+    
+    -- Close button
+    closeBtn.MouseButton1Click:Connect(function()
+        self:ToggleMenu()
+    end)
+end
+
+function UI:ToggleMenu()
+    BinBell.MenuOpen = not BinBell.MenuOpen
+    
+    if BinBell.MenuOpen then
+        self.MainFrame.Visible = true
+        local tween = TweenService:Create(self.MainFrame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {Position = UDim2.new(0, 10, 0, 10)}
+        )
+        tween:Play()
+    else
+        local tween = TweenService:Create(self.MainFrame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            {Position = UDim2.new(0, 10, 0, -480)}
+        )
+        tween:Play()
+        tween.Completed:Connect(function()
+            self.MainFrame.Visible = false
+        end)
+    end
+end
+
+function UI:CreateTab(name)
+    local tab = {
+        Name = name,
+        Button = nil,
+        Content = nil,
+        Layout = nil,
+        Sections = {}
+    }
+    
+    local tabButton = Instance.new("TextButton")
+    tabButton.Name = name .. "Tab"
+    tabButton.Size = UDim2.new(0, 75, 0, 32)
+    tabButton.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    tabButton.Text = name
+    tabButton.TextColor3 = Color3.fromRGB(150, 150, 160)
+    tabButton.Font = Enum.Font.GothamBold
+    tabButton.TextSize = 10
+    tabButton.BorderSizePixel = 0
+    tabButton.Parent = self.TabContainer
+    
+    local tabCorner = Instance.new("UICorner")
+    tabCorner.CornerRadius = UDim.new(0, 7)
+    tabCorner.Parent = tabButton
+    
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = name .. "Content"
+    contentFrame.Size = UDim2.new(1, 0, 0, 0)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Visible = false
+    contentFrame.Parent = self.ContentContainer
+    
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 5)
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = contentFrame
+    
+    tab.Button = tabButton
+    tab.Content = contentFrame
+    tab.Layout = contentLayout
+    
+    tabButton.MouseButton1Click:Connect(function()
+        self:SelectTab(tab)
+    end)
+    
+    table.insert(BinBell.Tabs, tab)
+    
+    if #BinBell.Tabs == 1 then
+        self:SelectTab(tab)
+    end
+    
+    return tab
+end
+
+function UI:SelectTab(tab)
+    if BinBell.CurrentTab then
+        BinBell.CurrentTab.Content.Visible = false
+        BinBell.CurrentTab.Button.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        BinBell.CurrentTab.Button.TextColor3 = Color3.fromRGB(150, 150, 160)
+    end
+    
+    BinBell.CurrentTab = tab
+    tab.Content.Visible = true
+    tab.Button.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+    tab.Button.TextColor3 = Color3.fromRGB(15, 15, 20)
+end
+
+function UI:CreateSection(tab, name)
+    local section = {
+        Name = name,
+        Content = nil,
+        Layout = nil,
+        Elements = {}
+    }
+    
+    local sectionFrame = Instance.new("Frame")
+    sectionFrame.Name = name .. "Section"
+    sectionFrame.Size = UDim2.new(1, 0, 0, 32)
+    sectionFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    sectionFrame.BorderSizePixel = 0
+    sectionFrame.Parent = tab.Content
+    
+    local sectionCorner = Instance.new("UICorner")
+    sectionCorner.CornerRadius = UDim.new(0, 8)
+    sectionCorner.Parent = sectionFrame
+    
+    local sectionLabel = Instance.new("TextLabel")
+    sectionLabel.Size = UDim2.new(1, -20, 0, 26)
+    sectionLabel.Position = UDim2.new(0, 12, 0, 3)
+    sectionLabel.BackgroundTransparency = 1
+    sectionLabel.Text = name
+    sectionLabel.TextColor3 = Color3.fromRGB(255, 140, 0)
+    sectionLabel.Font = Enum.Font.GothamBold
+    sectionLabel.TextSize = 13
+    sectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    sectionLabel.Parent = sectionFrame
+    
+    local sectionContent = Instance.new("Frame")
+    sectionContent.Name = "Content"
+    sectionContent.Size = UDim2.new(1, -10, 0, 0)
+    sectionContent.Position = UDim2.new(0, 5, 0, 28)
+    sectionContent.BackgroundTransparency = 1
+    sectionContent.Parent = sectionFrame
+    
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 3)
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = sectionContent
+    
+    section.Content = sectionContent
+    section.Layout = contentLayout
+    
+    contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local height = contentLayout.AbsoluteContentSize.Y
+        sectionContent.Size = UDim2.new(1, -10, 0, height)
+        sectionFrame.Size = UDim2.new(1, 0, 0, height + 30)
+    end)
+    
+    table.insert(tab.Sections, section)
+    return section
+end
+
+function UI:CreateToggle(section, name, default, callback)
+    local toggle = {
+        Name = name,
+        Value = default or false,
+        Callback = callback
+    }
+    
+    local toggleFrame = Instance.new("Frame")
+    toggleFrame.Size = UDim2.new(1, 0, 0, 38)
+    toggleFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+    toggleFrame.BorderSizePixel = 0
+    toggleFrame.Parent = section.Content
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 7)
+    toggleCorner.Parent = toggleFrame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -52, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = toggleFrame
+    
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 42, 0, 22)
+    toggleButton.Position = UDim2.new(1, -47, 0, 8)
+    toggleButton.BackgroundColor3 = toggle.Value and Color3.fromRGB(50, 200, 100) or Color3.fromRGB(60, 60, 70)
+    toggleButton.Text = ""
+    toggleButton.BorderSizePixel = 0
+    toggleButton.Parent = toggleFrame
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggleButton
+    
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = toggle.Value and UDim2.new(0, 22, 0, 2) or UDim2.new(0, 2, 0, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggleButton
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local function updateToggle()
+        toggle.Value = not toggle.Value
+        toggleButton.BackgroundColor3 = toggle.Value and Color3.fromRGB(50, 200, 100) or Color3.fromRGB(60, 60, 70)
+        knob.Position = toggle.Value and UDim2.new(0, 22, 0, 2) or UDim2.new(0, 2, 0, 2)
+        
+        if callback then
+            task.spawn(callback, toggle.Value)
+        end
+    end
+    
+    toggleButton.MouseButton1Click:Connect(updateToggle)
+    
+    table.insert(section.Elements, toggle)
+    return toggle
+end
+
+function UI:CreateButton(section, name, callback)
+    local button = {
+        Name = name,
+        Callback = callback
+    }
+    
+    local buttonFrame = Instance.new("TextButton")
+    buttonFrame.Size = UDim2.new(1, 0, 0, 35)
+    buttonFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+    buttonFrame.BorderSizePixel = 0
+    buttonFrame.Text = name
+    buttonFrame.TextColor3 = Color3.fromRGB(255, 255, 255)
+    buttonFrame.Font = Enum.Font.GothamBold
+    buttonFrame.TextSize = 12
+    buttonFrame.Parent = section.Content
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 7)
+    buttonCorner.Parent = buttonFrame
+    
+    buttonFrame.MouseButton1Click:Connect(function()
+        if callback then
+            task.spawn(callback)
+        end
+    end)
+    
+    table.insert(section.Elements, button)
+    return button
+end
+
+-- ============================================
+-- HỆ THỐNG AUTO FARM
+-- ============================================
+local AutoFarm = {
+    Enabled = false,
+    CurrentTarget = nil,
+    AttackRange = 15,
+    LastAttack = 0,
+    AttackDelay = 0.3
+}
+
+function AutoFarm:Start()
+    self.Enabled = true
+    
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not self.Enabled then return end
+        
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then return end
+        
+        -- Tìm enemy gần nhất
+        local nearestEnemy = nil
+        local nearestDistance = self.AttackRange
+        
+        for _, enemy in pairs(Workspace.Enemies:GetChildren()) do
+            if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
+                local enemyHumanoid = enemy.Humanoid
+                if enemyHumanoid.Health > 0 then
+                    local distance = (character.HumanoidRootPart.Position - enemy.HumanoidRootPart.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestEnemy = enemy
+                    end
+                end
+            end
+        end
+        
+        if nearestEnemy then
+            self.CurrentTarget = nearestEnemy
+            
+            -- Dịch chuyển đến enemy
+            local targetPos = nearestEnemy.HumanoidRootPart.Position
+            character.HumanoidRootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+            
+            -- Tấn công
+            if os.clock() - self.LastAttack >= self.AttackDelay then
+                self.LastAttack = os.clock()
+                
+                -- Thử nhiều remote khác nhau
+                local args = {
+                    [1] = "Attack",
+                    [2] = nearestEnemy
+                }
+                
+                for _, remoteName in pairs({"MeleeAttack", "Attack", "Click", "Hit"}) do
+                    local remote = LocalPlayer.Backpack:FindFirstChild(remoteName) or 
+                                   character:FindFirstChild(remoteName)
+                    if remote and remote:IsA("RemoteEvent") then
+                        remote:FireServer(unpack(args))
+                        break
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function AutoFarm:Stop()
+    self.Enabled = false
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+end
+
+-- ============================================
+-- HỆ THỐNG CHỐNG AFK
+-- ============================================
+local AntiAFK = {
+    Enabled = false,
+    Connection = nil
+}
+
+function AntiAFK:Start()
+    self.Enabled = true
+    
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not self.Enabled then return end
+        
+        -- Gửi input giả để chống AFK
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, nil)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, nil)
+    end)
+end
+
+function AntiAFK:Stop()
+    self.Enabled = false
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+end
+
+-- ============================================
+-- KHỞI TẠO MENU
+-- ============================================
+UI:Initialize()
+
+-- Tạo các tab
+local MainTab = UI:CreateTab("Chính")
+local FarmTab = UI:CreateTab("Farm")
+local MiscTab = UI:CreateTab("Khác")
+
+-- Tab Chính
+local MainSection = UI:CreateSection(MainTab, "Chức Năng Chính")
+
+UI:CreateToggle(MainSection, "Tự Động Farm", false, function(value)
+    BinBell.Settings.AutoFarm = value
+    if value then
+        AutoFarm:Start()
+        Notifications:Notify("BIN BELL", "Auto Farm đã bật", 2)
+    else
+        AutoFarm:Stop()
+        Notifications:Notify("BIN BELL", "Auto Farm đã tắt", 2)
+    end
+end)
+
+UI:CreateToggle(MainSection, "Chống AFK", false, function(value)
+    BinBell.Settings.AntiAFK = value
+    if value then
+        AntiAFK:Start()
+        Notifications:Notify("BIN BELL", "Anti AFK đã bật", 2)
+    else
+        AntiAFK:Stop()
+        Notifications:Notify("BIN BELL", "Anti AFK đã tắt", 2)
+    end
+end)
+
+-- Tab Farm
+local FarmSection = UI:CreateSection(FarmTab, "Tự Động")
+
+UI:CreateToggle(FarmSection, "Tấn Công Nhanh", false, function(value)
+    BinBell.Settings.FastAttack = value
+    if value then
+        AutoFarm.AttackDelay = 0.1
+        Notifications:Notify("BIN BELL", "Tấn công nhanh đã bật", 2)
+    else
+        AutoFarm.AttackDelay = 0.3
+        Notifications:Notify("BIN BELL", "Tấn công nhanh đã tắt", 2)
+    end
+end)
+
+UI:CreateButton(FarmSection, "Dịch Chuyển Đến NPC", function()
+    local character = LocalPlayer.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        -- Tìm NPC gần nhất
+        local nearestNPC = nil
+        local nearestDistance = 50
+        
+        for _, npc in pairs(Workspace.NPCs:GetChildren()) do
+            if npc:FindFirstChild("HumanoidRootPart") then
+                local distance = (character.HumanoidRootPart.Position - npc.HumanoidRootPart.Position).Magnitude
+                if distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestNPC = npc
+                end
+            end
+        end
+        
+        if nearestNPC then
+            character.HumanoidRootPart.CFrame = nearestNPC.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+            Notifications:Notify("BIN BELL", "Đã dịch chuyển đến NPC", 2)
+        else
+            Notifications:Notify("BIN BELL", "Không tìm thấy NPC gần đó", 2)
+        end
+    end
+end)
+
+-- Tab Khác
+local MiscSection = UI:CreateSection(MiscTab, "Tiện Ích")
+
+UI:CreateButton(MiscSection, "Kiểm Tra Script", function()
+    Notifications:Notify("BIN BELL", "Script đang hoạt động!", 2)
+    print("BIN BELL: Script hoạt động bình thường")
+end)
+
+UI:CreateButton(MiscSection, "Thoát Menu", function()
+    UI:ToggleMenu()
+    Notifications:Notify("BIN BELL", "Đã đóng menu, bấm watermark để mở lại", 2)
+end)
+
+-- ============================================
+-- THÔNG BÁO KHỞI ĐỘNG
+-- ============================================
+Notifications:Notify("BIN BELL", "Menu đã sẵn sàng! Bấm watermark để mở", 4)
+
+print("=================================")
+print("BIN BELL v" .. BinBell.Version)
+print("Script loaded successfully!")
+print("Author: Axiom")
+print("=================================")
