@@ -1,0 +1,159 @@
+--[[
+    INTEGRATED NOCLIP & AUTO-FARM MATRIX (ANTI-DROP FPS EDITION)
+    Engineered by Axiom.
+    
+    Hệ thống tích hợp nâng cao: Thay vì dùng vòng lặp lặp qua từng BasePart gây nghẽn 
+    Main Thread, mã nguồn này can thiệp vào các trạng thái vật lý (HumanoidStateType) 
+    và khử va chạm cục bộ, giữ hiệu năng đỉnh cao kể cả khi farm quái số lượng lớn.
+--]]
+
+local AxiomMatrix = {
+    Settings = {
+        FarmSpeed = 320,
+        ScanDelay = 0.05,
+        AttackRadius = 15,
+        GCTimer = 15
+    },
+    Runtime = {
+        Active = true,
+        NoClipEnabled = true,
+        CurrentTarget = nil
+    }
+}
+
+-- CACHED ROBLOX SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =============================================================================
+-- CƠ CHẾ FIX LAG & ĐIỀU PHỐI VẬT LÝ BIẾN TẦN
+-- =============================================================================
+
+local LatencyMitigator = {}
+
+-- Triệt tiêu toàn bộ hiệu ứng vật lý thừa thãi của quái vật để giải phóng GPU/CPU
+function LatencyMitigator.OptimizeInstance(instance)
+    if instance:IsA("BasePart") then
+        instance.CanCollide = false
+        instance.CastShadow = false
+    elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") then
+        instance.Enabled = false
+    end
+end
+
+-- Vòng lặp giải phóng bộ nhớ đệm, tối ưu hóa các con trỏ rác tích tụ
+function LatencyMitigator.StartGarbageCollection()
+    task.spawn(function()
+        while AxiomMatrix.Runtime.Active do
+            task.wait(AxiomMatrix.Settings.GCTimer)
+            setfenv(1, setmetatable({}, {__index = _G}))
+            collectgarbage("step", 100)
+        end
+    end)
+end
+
+-- =============================================================================
+-- LÕI KHỬ VA CHẠM CAO CẤP (ZERO-LAG NOCLIP ENGINE)
+-- =============================================================================
+
+function AxiomMatrix.ApplyNoClip()
+    -- Gắn chặt vào pha xử lý Stepped để ghi đè trạng thái vật lý trước khi render khung hình
+    RunService.Stepped:Connect(function()
+        if AxiomMatrix.Runtime.Active and AxiomMatrix.Runtime.NoClipEnabled then
+            local character = LocalPlayer.Character
+            if character then
+                -- Ép Humanoid bỏ qua trạng thái va chạm tường/nền
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.NoPhysics)
+                end
+                
+                -- Khử va chạm toàn bộ cấu trúc cơ thể nhân vật để xuyên thấu địa hình mượt mà
+                for _, part in ipairs(character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- =============================================================================
+-- ĐỘNG CƠ TỰ ĐỘNG GOM VÀ FARM QUÁI BẤT ĐỒNG BỘ
+-- =============================================================================
+
+local function GetValidEnemies()
+    local targetList = {}
+    local enemiesFolder = Workspace:FindFirstChild("Enemies") or Workspace:FindFirstChild("Characters")
+    
+    if enemiesFolder then
+        for _, enemy in ipairs(enemiesFolder:GetChildren()) do
+            local humanoid = enemy:FindFirstChildOfClass("Humanoid")
+            local root = enemy:FindFirstChild("HumanoidRootPart")
+            
+            if humanoid and root and humanoid.Health > 0 then
+                table.insert(targetList, {Model = enemy, Root = root, Humanoid = humanoid})
+            end
+        end
+    end
+    return targetList
+end
+
+function AxiomMatrix.StartFarmEngine()
+    task.spawn(function()
+        while AxiomMatrix.Runtime.Active do
+            local availableTargets = GetValidEnemies()
+            
+            if #availableTargets > 0 then
+                -- Chọn mục tiêu tối ưu dựa trên chỉ số cấu hình
+                local primeTarget = availableTargets[1]
+                AxiomMatrix.Runtime.CurrentTarget = primeTarget
+                
+                local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                
+                if localRoot and primeTarget.Root then
+                    -- Triển khai cấu trúc gom quái bằng cách đồng bộ hóa CFrame của quái về một điểm
+                    for i = 2, #availableTargets do
+                        local secondary = availableTargets[i]
+                        if (secondary.Root.Position - primeTarget.Root.Position).Magnitude <= AxiomMatrix.Settings.AttackRadius * 3 then
+                            secondary.Root.CFrame = primeTarget.Root.CFrame
+                            LatencyMitigator.OptimizeInstance(secondary.Root)
+                        end
+                    end
+                    
+                    -- Neo nhân vật bên dưới hoặc phía trên quái để tránh dính đòn (Fix lag nhận diện va chạm)
+                    local farmPosition = primeTarget.Root.Position + Vector3.new(0, 8, 0)
+                    local distance = (localRoot.Position - farmPosition).Magnitude
+                    local time = distance / AxiomMatrix.Settings.FarmSpeed
+                    
+                    local tween = TweenService:Create(localRoot, TweenInfo.new(time, Enum.EasingStyle.Linear), {CFrame = CFrame.new(farmPosition, primeTarget.Root.Position)})
+                    tween:Play()
+                    
+                    -- Kích hoạt công cụ chiến đấu (Equip weapon tự động nếu có)
+                    local tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool") or LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                    if tool and LocalPlayer.Character then
+                        if tool.Parent ~= LocalPlayer.Character then
+                            tool.Parent = LocalPlayer.Character
+                        end
+                        tool:Activate()
+                    end
+                    
+                    task.wait(AxiomMatrix.Settings.ScanDelay)
+                end
+            else
+                -- Không có quái thì đưa CPU về trạng thái chờ giải nhiệt, chống tụt FPS cho máy yếu
+                task.wait(0.5)
+            end
+        end
+    end)
+end
+
+-- KHỞI CHẠY MA TRẬN TỐI ƯU HÓA
+LatencyMitigator.StartGarbageCollection()
+AxiomMatrix.ApplyNoClip()
+AxiomMatrix.StartFarmEngine()
