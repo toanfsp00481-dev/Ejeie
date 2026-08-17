@@ -1,0 +1,217 @@
+--/ Axiom Unified Subsystem Core Engine /--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Cấu hình toàn bộ hệ thống phân cấp trạng thái
+local AxiomState = {
+    AutoFarm = false,
+    NoClip = false,
+    ESP = false,
+    TargetEnemy = "Monkey",
+    YOffset = 8.5 -- Khoảng cách an toàn phía trên thực thể khi farm
+}
+
+local AxiomUnifiedMenu = {
+    ActiveConnections = {},
+    CachedVisuals = {},
+    UIElements = {}
+}
+
+-- [MODULE 1: Bỏ qua va chạm vật lý - NoClip Logic]
+function AxiomUnifiedMenu:ToggleNoClip(state)
+    AxiomState.NoClip = state
+    if self.ActiveConnections["NoClip"] then 
+        self.ActiveConnections["NoClip"]:Disconnect() 
+        self.ActiveConnections["NoClip"] = nil 
+    end
+    
+    if state then
+        self.ActiveConnections["NoClip"] = RunService.Stepped:Connect(function()
+            local Character = LocalPlayer.Character
+            if Character then
+                for _, Part in ipairs(Character:GetChildren()) do
+                    if Part:IsA("BasePart") and Part.CanCollide then
+                        Part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- [MODULE 2: Định vị và vẽ khung thực thể - ESP Telemetry]
+function AxiomUnifiedMenu:ToggleESP(state)
+    AxiomState.ESP = state
+    
+    -- Xóa sạch bộ nhớ đệm đồ họa cũ tránh rò rỉ bộ nhớ (Memory Leak)
+    for Entity, Highlight in pairs(self.CachedVisuals) do
+        if Highlight then Highlight:Destroy() end
+        self.CachedVisuals[Entity] = nil
+    end
+    
+    if self.ActiveConnections["ESP"] then 
+        self.ActiveConnections["ESP"]:Disconnect() 
+        self.ActiveConnections["ESP"] = nil 
+    end
+    
+    if state then
+        self.ActiveConnections["ESP"] = RunService.RenderStepped:Connect(function()
+            local Enemies = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
+            if not Enemies then return end
+            
+            for _, Enemy in ipairs(Enemies:GetChildren()) do
+                if Enemy:IsA("Model") and Enemy:FindFirstChild("HumanoidRootPart") and Enemy:FindFirstChild("Humanoid") and Enemy.Humanoid.Health > 0 then
+                    if not self.CachedVisuals[Enemy] then
+                        local Highlight = Instance.new("Highlight")
+                        Highlight.Name = "AxiomTracker"
+                        Highlight.FillColor = Color3.fromRGB(255, 0, 50)
+                        Highlight.FillTransparency = 0.5
+                        Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        Highlight.OutlineTransparency = 0
+                        Highlight.Adornee = Enemy
+                        Highlight.Parent = CoreGui
+                        self.CachedVisuals[Enemy] = Highlight
+                    end
+                else
+                    if self.CachedVisuals[Enemy] then
+                        self.CachedVisuals[Enemy]:Destroy()
+                        self.CachedVisuals[Enemy] = nil
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- [MODULE 3: Vòng lặp tối ưu hóa tài nguyên - Auto Farm Pipeline]
+function AxiomUnifiedMenu:GetClosestTarget()
+    local Enemies = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
+    if not Enemies then return nil end
+    
+    local MaxDistance = math.huge
+    local PrimaryTarget = nil
+    
+    for _, Enemy in ipairs(Enemies:GetChildren()) do
+        if Enemy:IsA("Model") and Enemy.Name == AxiomState.TargetEnemy and Enemy:FindFirstChild("HumanoidRootPart") and Enemy:FindFirstChild("Humanoid") and Enemy.Humanoid.Health > 0 then
+            local LocalRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if LocalRoot then
+                local Dist = (LocalRoot.Position - Enemy.HumanoidRootPart.Position).Magnitude
+                if Dist < MaxDistance then
+                    MaxDistance = Dist
+                    PrimaryTarget = Enemy
+                end
+            end
+        end
+    end
+    return PrimaryTarget
+end
+
+function AxiomUnifiedMenu:ToggleAutoFarm(state)
+    AxiomState.AutoFarm = state
+    if self.ActiveConnections["AutoFarm"] then 
+        self.ActiveConnections["AutoFarm"]:Disconnect() 
+        self.ActiveConnections["AutoFarm"] = nil 
+    end
+    
+    if state then
+        local TargetEntity = nil
+        self.ActiveConnections["AutoFarm"] = RunService.Heartbeat:Connect(function()
+            local Character = LocalPlayer.Character
+            local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+            if not RootPart then return end
+            
+            -- Triệt tiêu vector vận tốc rơi tự do của engine vật lý
+            local BV = RootPart:FindFirstChild("AxiomHold")
+            if not BV then
+                BV = Instance.new("BodyVelocity")
+                BV.Name = "AxiomHold"
+                BV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                BV.Velocity = Vector3.new(0, 0, 0)
+                BV.Parent = RootPart
+            end
+            
+            if not TargetEntity or not TargetEntity.Parent or not TargetEntity:FindFirstChild("Humanoid") or TargetEntity.Humanoid.Health <= 0 then
+                TargetEntity = self:GetClosestTarget()
+            end
+            
+            if TargetEntity and TargetEntity:FindFirstChild("HumanoidRootPart") then
+                -- Đồng bộ hóa tọa độ không gian phi tuyến tính
+                RootPart.CFrame = TargetEntity.HumanoidRootPart.CFrame * CFrame.new(0, AxiomState.YOffset, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+                
+                -- Khởi chạy chuỗi tín hiệu hạ gục liên tục thông qua validator
+                local AttackRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Validator")
+                if AttackRemote then
+                    AttackRemote:FireServer("AttackContinuous", TargetEntity.HumanoidRootPart.Position)
+                end
+            else
+                BV.Velocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    else
+        local Character = LocalPlayer.Character
+        local BV = Character and Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart:FindFirstChild("AxiomHold")
+        if BV then BV:Destroy() end
+    end
+end
+
+-- [MODULE 4: Tạo cấu trúc giao diện hợp nhất - Interface Controller]
+function AxiomUnifiedMenu:BuildMenu()
+    -- Khởi tạo Frame nền chính chống đè màn hình
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "AxiomUnifiedFramework"
+    ScreenGui.ResetOnSpawn = false
+    
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UUDim2.new(0, 250, 0, 300)
+    MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true -- Hỗ trợ kéo thả trên màn hình thiết bị
+    MainFrame.Parent = ScreenGui
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 40)
+    Title.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    Title.Text = "AXIOM UNIFIED CONTROL"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.Font = Enum.Font.Code
+    Title.TextSize = 14
+    Title.Parent = MainFrame
+
+    local function CreateToggleButton(name, offset, callback)
+        local Btn = Instance.new("TextButton")
+        Btn.Size = UDim2.new(0.9, 0, 0, 45)
+        Btn.Position = UDim2.new(0.05, 0, 0, offset)
+        Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        Btn.Text = name .. " : OFF"
+        Btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+        Btn.Font = Enum.Font.SourceSansPro
+        Btn.TextSize = 16
+        Btn.BorderSizePixel = 0
+        
+        local active = false
+        Btn.MouseButton1Click:Connect(function()
+            active = not active
+            Btn.Text = name .. " : " .. (active and "ON" or "OFF")
+            Btn.BackgroundColor3 = active and Color3.fromRGB(255, 0, 50) or Color3.fromRGB(40, 40, 45)
+            callback(active)
+        end)
+        
+        Btn.Parent = MainFrame
+    end
+
+    -- Đăng ký dán nhãn các luồng tính năng lên UI
+    CreateToggleButton("Tự động cày quái (Auto Farm)", 60, function(state) self:ToggleAutoFarm(state) end)
+    CreateToggleButton("Định vị thực thể (ESP Radar)", 120, function(state) self:ToggleESP(state) end)
+    CreateToggleButton("Xuyên tường vật lý (NoClip)", 180, function(state) self:ToggleNoClip(state) end)
+
+    ScreenGui.Parent = CoreGui
+end
+
+-- Khởi động hệ thống giao diện hợp nhất
+AxiomUnifiedMenu:BuildMenu()
