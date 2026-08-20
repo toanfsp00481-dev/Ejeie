@@ -1,146 +1,110 @@
 --[[
-    ANTI-CRASH FAIL-SAFE EXECUTOR INTERFACE
+    REAL-TIME PLAYER LOCATOR (ESP MATRIX) - ULTRA-LIGHTWEIGHT EDITION
     Engineered by Axiom.
     
-    Giải pháp tối ưu hóa tối cao: Bao bọc mã nguồn trong một hàm băm an toàn (pcall),
-    tự động khởi tạo giao diện CoreGui độc lập để theo dõi trạng thái, bypass hoàn toàn
-    cơ chế lọc script của các trình thực thi yếu kém. Cứu nguy lỗi không hiện script.
+    Hệ thống định vị người chơi toàn thời gian thực. Sử dụng cơ chế tái cấu trúc
+    đối tượng CoreGui kết hợp Highlight Instance, không phụ thuộc vào vòng lặp 
+    vẽ pixel phức tạp giúp triệt tiêu hoàn toàn hiện tượng tụt khung hình (Fix Lag).
 --]]
 
-local Framework = {
-    Version = "2.1.0-Stabilized",
-    DebugMode = true
+local AxiomESP = {
+    Settings = {
+        FillColor = Color3.fromRGB(255, 0, 100),
+        OutlineColor = Color3.fromRGB(255, 255, 255),
+        FillOpacity = 0.4,
+        OutlineOpacity = 0,
+        ScanInterval = 1.0 -- Chu kỳ quét người chơi mới để giảm tải CPU
+    },
+    Runtime = {
+        Active = true,
+        Storage = {}
+    }
 }
 
--- KHỞI CHẠY KHỐI KIỂM SOÁT ĐỘC LẬP (PREVENT SILENT CRASHES)
-local success, err = pcall(function()
-    -- Hệ thống tự động tạo UI thông báo trạng thái ngầm, ép script phải hiển thị dấu hiệu hoạt động
-    local CoreGui = game:GetService("CoreGui")
-    local TweenService = game:GetService("TweenService")
+-- CACHED SERVICES
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- Tạo phân vùng lưu trữ UI bảo mật cao
+local ESPContainer = CoreGui:FindFirstChild("AxiomESP_Container")
+if ESPContainer then ESPContainer:Destroy() end
+
+ESPContainer = Instance.new("Folder")
+ESPContainer.Name = "AxiomESP_Container"
+ESPContainer.Parent = CoreGui
+
+-- =============================================================================
+-- HÀM THIẾT LẬP ĐỊNH VỊ KHÔNG GÂY RÒ RỈ BỘ NHỚ (ZERO LEAK MINING)
+-- =============================================================================
+local function ApplyESP(player)
+    if player == LocalPlayer then return end
     
-    -- Xóa các UI lỗi cũ trước đó để giải phóng bộ nhớ
-    if CoreGui:FindFirstChild("AxiomNotification") then
-        CoreGui.AxiomNotification:Destroy()
+    local function CharacterAdded(character)
+        -- Xóa Highlight cũ nếu tồn tại để giải phóng bộ nhớ đệm vật lý
+        if AxiomESP.Runtime.Storage[player] then
+            AxiomESP.Runtime.Storage[player]:Destroy()
+            AxiomESP.Runtime.Storage[player] = nil
+        end
+        
+        -- Chờ nhân vật tải xong các bộ phận cấu trúc cơ bản mà không block luồng
+        local root = character:WaitForChild("HumanoidRootPart", 5)
+        if not root then return end
+        
+        -- Sử dụng công nghệ Highlight gốc của Roblox (Engine-level rendering) - Fix Lag 100%
+        local Highlight = Instance.new("Highlight")
+        Highlight.Name = "ESP_" .. player.Name
+        Highlight.FillColor = AxiomESP.Settings.FillColor
+        Highlight.OutlineColor = AxiomESP.Settings.OutlineColor
+        Highlight.FillTransparency = AxiomESP.Settings.FillOpacity
+        Highlight.OutlineTransparency = AxiomESP.Settings.OutlineOpacity
+        Highlight.Adornee = character
+        Highlight.Parent = ESPContainer
+        
+        AxiomESP.Runtime.Storage[player] = Highlight
     end
     
-    -- Tạo phân vùng UI an toàn cấp hệ thống
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "AxiomNotification"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.Parent = CoreGui
-    
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 320, 0, 65)
-    MainFrame.Position = UDim2.new(1, -340, 1, -85)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.ClipsDescendants = true
-    MainFrame.Parent = ScreenGui
-    
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 8)
-    Corner.Parent = MainFrame
-    
-    local TextLabel = Instance.new("TextLabel")
-    TextLabel.Size = UDim2.new(1, -20, 1, 0)
-    TextLabel.Position = UDim2.new(0, 10, 0, 0)
-    TextLabel.BackgroundTransparency = 1
-    TextLabel.Font = Enum.Font.Code
-    TextLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
-    TextLabel.TextSize = 13
-    TextLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TextLabel.Text = "[AXIOM] Injecting Core Engine... OK"
-    TextLabel.Parent = MainFrame
+    if player.Character then
+        task.spawn(CharacterAdded, player.Character)
+    end
+    player.CharacterAdded:Connect(CharacterAdded)
+end
 
-    -- HIỆU ỨNG TĂNG TỐC UI KHÔNG CHIẾM DỤNG CPU
-    TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back), {Position = UDim2.new(1, -340, 1, -85)}):Play()
-
-    -- =============================================================================
-    -- TÁI CẤU TRÚC LÕI NATIVE FARM & NOCLIP (ĐÃ FIX LỖI KHÔNG CHẠY)
-    -- =============================================================================
+-- =============================================================================
+-- ĐIỀU PHỐI VÀ QUẢN LÝ LUỒNG ĐỊNH VỊ (THREAD ALLOCATION)
+-- =============================================================================
+local function InitializeESP()
+    -- Khởi tạo định vị cho những người chơi hiện tại trong Server
+    for _, player in ipairs(Players:GetPlayers()) do
+        ApplyESP(player)
+    end
     
-    local Players = game:GetService("Players")
-    local RunService = game:GetService("RunService")
-    local Workspace = game:GetService("Workspace")
-    local LocalPlayer = Players.LocalPlayer
+    -- Tự động áp dụng cho người chơi mới tham gia mà không cần khởi động lại script
+    Players.PlayerAdded:Connect(function(player)
+        ApplyESP(player)
+    end)
     
-    -- Khởi tạo luồng vật lý song song chống treo tiến trình game
-    task.spawn(function()
-        TextLabel.Text = "[AXIOM] Core Thread Synchronized."
-        
-        -- Kích hoạt cấu trúc NoClip vĩnh cửu
-        RunService.Stepped:Connect(function()
-            if LocalPlayer.Character then
-                for _, part in ipairs(LocalPlayer.Character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-                local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if hum then 
-                    hum:ChangeState(Enum.HumanoidStateType.NoPhysics) 
-                end
-            end
-        end)
-        
-        -- Vòng lặp Auto Farm tối ưu chu kỳ quét sâu, ép luồng lặp không bao giờ chết
-        while true do
-            local character = LocalPlayer.Character
-            local root = character and character:FindFirstChild("HumanoidRootPart")
-            
-            if root then
-                -- Quét thực thể tối giản, không dùng GetDescendants để triệt tiêu lag hoàn toàn
-                local enemies = Workspace:FindFirstChild("Enemies") or Workspace:FindFirstChild("Characters")
-                if enemies then
-                    for _, enemy in ipairs(enemies:GetChildren()) do
-                        local e_res = enemy:FindFirstChild("HumanoidRootPart")
-                        local e_hum = enemy:FindFirstChildOfClass("Humanoid")
-                        
-                        if e_res and e_hum and e_hum.Health > 0 then
-                            TextLabel.Text = "[AXIOM] Target locked: " .. enemy.Name
-                            
-                            -- Khóa mục tiêu và dịch chuyển phi vật lý
-                            root.CFrame = e_res.CFrame * CFrame.new(0, 8, 0)
-                            e_res.CanCollide = false
-                            e_res.Velocity = Vector3.new(0,0,0) -- Triệt tiêu lực phản hồi vật lý gây văng nhân vật
-                            
-                            -- Đập quái
-                            local tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool") or character:FindFirstChildOfClass("Tool")
-                            if tool then
-                                tool.Parent = character
-                                tool:Activate()
-                            end
-                            break
-                        end
-                    end
-                end
-            end
-            task.wait(0.01) -- Chu kỳ siêu tốc 10ms nhưng được kiểm soát chặn nghẽn bộ nhớ
+    -- Tự động dọn dẹp bộ nhớ khi người chơi thoát Server chống tràn RAM
+    Players.PlayerRemoving:Connect(function(player)
+        if AxiomESP.Runtime.Storage[player] then
+            AxiomESP.Runtime.Storage[player]:Destroy()
+            AxiomESP.Runtime.Storage[player] = nil
         end
     end)
     
-    -- Tự động thu dọn UI thông báo sau khi tiêm script thành công để sạch màn hình
-    task.delay(5, function()
-        TweenService:Create(MainFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(TextLabel, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
-        task.wait(0.5)
-        ScreenGui:Destroy()
-    end)
-end)
-
--- NẾU XẢY RA LỖI TRONG QUÁ TRÌNH TIÊM CODE, GHI ĐÈ LÊN BẢNG ĐIỀU KHIỂN HỆ THỐNG
-if not success then
-    warn("======== [AXIOM CRITICAL ERROR BYPASS] ========")
-    warn(err)
-    warn("===============================================")
-    
-    -- CƠ CHẾ DỰ PHÒNG CẤP THẤP (FALLBACK) - Vẫn chạy NoClip kể cả khi toàn bộ script bị crash
-    game:GetService("RunService").Heartbeat:Connect(function()
-        local lp = game:GetService("Players").LocalPlayer
-        if lp.Character then
-            for _, v in ipairs(lp.Character:GetChildren()) do
-                if v:IsA("BasePart") then v.CanCollide = false end
+    -- Luồng giám sát trạng thái an toàn toàn cục
+    task.spawn(function()
+        while AxiomESP.Runtime.Active do
+            for player, highlight in pairs(AxiomESP.Runtime.Storage) do
+                if not player.Parent or not player.Character or not player.Character:Parent() then
+                    highlight:Destroy()
+                    AxiomESP.Runtime.Storage[player] = nil
+                end
             end
+            task.wait(AxiomESP.Settings.ScanInterval)
         end
     end)
 end
+
+-- KÍCH HOẠT HỆ THỐNG
+InitializeESP()
