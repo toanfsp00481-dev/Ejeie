@@ -1,165 +1,592 @@
---/ Axiom PlayerGui Direct Context Injection /--
+--[[
+    ⚔️ TOÀN BÁ KHÍ - Rivals Script v5
+    Aim Magic (bắn đâu trúng đó) + Camera Lock Head + Noclip + Wallbang
+    Dành cho mục đích học tập
+]]
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
--- Đảm bảo luồng giao diện tìm đúng phân cấp PlayerGui mà game bắt buộc hiển thị
-local TargetGuiParent = LocalPlayer:WaitForChild("PlayerGui")
+local Mouse = LocalPlayer:GetMouse()
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
-local AxiomState = {
-    AutoFarm = false,
-    NoClip = false,
-    ESP = false,
-    TargetEnemy = "Monkey",
-    YOffset = 8.5
+-- ========== CẤU HÌNH ==========
+local Config = {
+    AimAssist = true,
+    HeadAimbot = false,
+    AimMagic = false,       -- Bắn đại cũng trúng đầu
+    CameraLock = false,     -- Camera theo dõi đầu địch
+    ESP = true,
+    Noclip = false,
+    Wallbang = false,
+    AimFOV = 250,
+    AimSmoothness = 0.3,
+    HeadSmoothness = 0.5,
+    CameraSmoothness = 0.25,
+    TeamCheck = true,
+    WallCheck = false,
+    AimKey = Enum.UserInputType.MouseButton2,
 }
 
-local AxiomFixedMenu = {
-    Connections = {},
-    VisualCache = {}
+-- ========== THEME ==========
+local Theme = {
+    Bg         = Color3.fromRGB(18, 18, 24),
+    Panel      = Color3.fromRGB(28, 28, 38),
+    PanelHover = Color3.fromRGB(38, 38, 52),
+    Accent     = Color3.fromRGB(138, 92, 255),
+    Accent2    = Color3.fromRGB(255, 92, 180),
+    Green      = Color3.fromRGB(0, 220, 130),
+    Red        = Color3.fromRGB(255, 80, 80),
+    Text       = Color3.fromRGB(240, 240, 255),
+    SubText    = Color3.fromRGB(150, 150, 180),
+    Stroke     = Color3.fromRGB(60, 60, 85),
 }
 
--- Xóa sạch thực thể trùng lặp cũ để giải phóng không gian tên miền
-if TargetGuiParent:FindFirstChild("AxiomDirectFallback") then
-    TargetGuiParent.AxiomDirectFallback:Destroy()
-end
+-- ========== GUI ==========
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ToanBaKhi"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
 
-function AxiomFixedMenu:ToggleNoClip(state)
-    AxiomState.NoClip = state
-    if self.Connections["NoClip"] then self.Connections["NoClip"]:Disconnect() self.Connections["NoClip"] = nil end
-    if state then
-        self.Connections["NoClip"] = RunService.Stepped:Connect(function()
-            if LocalPlayer.Character then
-                for _, Part in ipairs(LocalPlayer.Character:GetChildren()) do
-                    if Part:IsA("BasePart") then Part.CanCollide = false end
-                end
-            end
-        end)
-    end
-end
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 280, 0, 560)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -280)
+MainFrame.BackgroundColor3 = Theme.Bg
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
 
-function AxiomFixedMenu:ToggleESP(state)
-    AxiomState.ESP = state
-    for Enemy, Highlight in pairs(self.VisualCache) do
-        if Highlight then Highlight:Destroy() end
-        self.VisualCache[Enemy] = nil
-    end
-    if self.Connections["ESP"] then self.Connections["ESP"]:Disconnect() self.Connections["ESP"] = nil end
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 14)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Theme.Accent
+MainStroke.Thickness = 1.5
+MainStroke.Transparency = 0.3
+MainStroke.Parent = MainFrame
+
+-- HEADER
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 62)
+Header.BackgroundColor3 = Theme.Panel
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 14)
+HeaderCorner.Parent = Header
+
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Size = UDim2.new(1, 0, 0, 14)
+HeaderFix.Position = UDim2.new(0, 0, 1, -14)
+HeaderFix.BackgroundColor3 = Theme.Panel
+HeaderFix.BorderSizePixel = 0
+HeaderFix.Parent = Header
+
+local HeaderGrad = Instance.new("UIGradient")
+HeaderGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Theme.Accent),
+    ColorSequenceKeypoint.new(1, Theme.Accent2),
+}
+HeaderGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.65),
+    NumberSequenceKeypoint.new(1, 0.85),
+}
+HeaderGrad.Rotation = 15
+HeaderGrad.Parent = Header
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -20, 0, 30)
+TitleText.Position = UDim2.new(0, 15, 0, 10)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "⚔️ TOÀN BÁ KHÍ"
+TitleText.TextColor3 = Theme.Text
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.TextSize = 18
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = Header
+
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Size = UDim2.new(1, -20, 0, 16)
+SubTitle.Position = UDim2.new(0, 15, 0, 38)
+SubTitle.BackgroundTransparency = 1
+SubTitle.Text = "RIVALS • v5.0 • MAGIC EDITION"
+SubTitle.TextColor3 = Theme.SubText
+SubTitle.Font = Enum.Font.GothamMedium
+SubTitle.TextSize = 10
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.Parent = Header
+
+local StatusDot = Instance.new("Frame")
+StatusDot.Size = UDim2.new(0, 8, 0, 8)
+StatusDot.Position = UDim2.new(1, -22, 0, 14)
+StatusDot.BackgroundColor3 = Theme.Green
+StatusDot.BorderSizePixel = 0
+StatusDot.Parent = Header
+local DotCorner = Instance.new("UICorner") DotCorner.CornerRadius = UDim.new(1, 0) DotCorner.Parent = StatusDot
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 22, 0, 22)
+MinBtn.Position = UDim2.new(1, -52, 0, 38)
+MinBtn.BackgroundColor3 = Theme.PanelHover
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Theme.Text
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 16
+MinBtn.Parent = Header
+local MinCorner = Instance.new("UICorner") MinCorner.CornerRadius = UDim.new(0, 6) MinCorner.Parent = MinBtn
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+CloseBtn.Position = UDim2.new(1, -26, 0, 38)
+CloseBtn.BackgroundColor3 = Theme.PanelHover
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Theme.Red
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.Parent = Header
+local CloseCorner = Instance.new("UICorner") CloseCorner.CornerRadius = UDim.new(0, 6) CloseCorner.Parent = CloseBtn
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -16, 1, -72)
+Scroll.Position = UDim2.new(0, 8, 0, 66)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Theme.Accent
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = MainFrame
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 6)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = Scroll
+
+-- ========== COMPONENTS ==========
+local function CreateToggle(name, desc, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 44)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local ItemCorner = Instance.new("UICorner") ItemCorner.CornerRadius = UDim.new(0, 10) ItemCorner.Parent = Item
+    local ItemStroke = Instance.new("UIStroke") ItemStroke.Color = Theme.Stroke ItemStroke.Thickness = 1 ItemStroke.Parent = Item
     
-    if state then
-        self.Connections["ESP"] = RunService.RenderStepped:Connect(function()
-            local Enemies = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
-            if not Enemies then return end
-            for _, Enemy in ipairs(Enemies:GetChildren()) do
-                if Enemy:IsA("Model") and Enemy:FindFirstChild("HumanoidRootPart") and Enemy:FindFirstChild("Humanoid") and Enemy.Humanoid.Health > 0 then
-                    if not self.VisualCache[Enemy] then
-                        local Box = Instance.new("Highlight")
-                        Box.Name = "AxiomESP"
-                        Box.FillColor = Color3.fromRGB(0, 255, 120)
-                        Box.FillTransparency = 0.6
-                        Box.Adornee = Enemy
-                        Box.Parent = TargetGuiParent
-                        self.VisualCache[Enemy] = Box
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -60, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 12
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+    
+    local Desc = Instance.new("TextLabel")
+    Desc.Size = UDim2.new(1, -60, 0, 14)
+    Desc.Position = UDim2.new(0, 14, 0, 24)
+    Desc.BackgroundTransparency = 1
+    Desc.Text = desc or ""
+    Desc.TextColor3 = Theme.SubText
+    Desc.Font = Enum.Font.Gotham
+    Desc.TextSize = 9
+    Desc.TextXAlignment = Enum.TextXAlignment.Left
+    Desc.Parent = Item
+    
+    local SwitchBg = Instance.new("Frame")
+    SwitchBg.Size = UDim2.new(0, 38, 0, 20)
+    SwitchBg.Position = UDim2.new(1, -50, 0.5, -10)
+    SwitchBg.BackgroundColor3 = default and Theme.Accent or Theme.PanelHover
+    SwitchBg.BorderSizePixel = 0
+    SwitchBg.Parent = Item
+    local SwitchCorner = Instance.new("UICorner") SwitchCorner.CornerRadius = UDim.new(1, 0) SwitchCorner.Parent = SwitchBg
+    
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 14, 0, 14)
+    Knob.Position = default and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+    Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = SwitchBg
+    local KnobCorner = Instance.new("UICorner") KnobCorner.CornerRadius = UDim.new(1, 0) KnobCorner.Parent = Knob
+    
+    local Click = Instance.new("TextButton")
+    Click.Size = UDim2.new(1, 0, 1, 0)
+    Click.BackgroundTransparency = 1
+    Click.Text = ""
+    Click.Parent = Item
+    
+    local state = default
+    Click.MouseButton1Click:Connect(function()
+        state = not state
+        TweenService:Create(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = state and Theme.Accent or Theme.PanelHover}):Play()
+        TweenService:Create(Knob, TweenInfo.new(0.2), {Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)}):Play()
+        TweenService:Create(ItemStroke, TweenInfo.new(0.2), {Color = state and Theme.Accent or Theme.Stroke}):Play()
+        callback(state)
+    end)
+    
+    Click.MouseEnter:Connect(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.PanelHover}):Play()
+    end)
+    Click.MouseLeave:Connect(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Panel}):Play()
+    end)
+end
+
+local function CreateSlider(name, minV, maxV, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 52)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local ItemCorner = Instance.new("UICorner") ItemCorner.CornerRadius = UDim.new(0, 10) ItemCorner.Parent = Item
+    local ItemStroke = Instance.new("UIStroke") ItemStroke.Color = Theme.Stroke ItemStroke.Thickness = 1 ItemStroke.Parent = Item
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -80, 0, 18)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+    
+    local ValueLbl = Instance.new("TextLabel")
+    ValueLbl.Size = UDim2.new(0, 60, 0, 18)
+    ValueLbl.Position = UDim2.new(1, -74, 0, 6)
+    ValueLbl.BackgroundTransparency = 1
+    ValueLbl.Text = tostring(default)
+    ValueLbl.TextColor3 = Theme.Accent
+    ValueLbl.Font = Enum.Font.GothamBold
+    ValueLbl.TextSize = 11
+    ValueLbl.TextXAlignment = Enum.TextXAlignment.Right
+    ValueLbl.Parent = Item
+    
+    local Track = Instance.new("Frame")
+    Track.Size = UDim2.new(1, -28, 0, 6)
+    Track.Position = UDim2.new(0, 14, 0, 32)
+    Track.BackgroundColor3 = Theme.PanelHover
+    Track.BorderSizePixel = 0
+    Track.Parent = Item
+    local TrackCorner = Instance.new("UICorner") TrackCorner.CornerRadius = UDim.new(1, 0) TrackCorner.Parent = Track
+    
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((default - minV) / (maxV - minV), 0, 1, 0)
+    Fill.BackgroundColor3 = Theme.Accent
+    Fill.BorderSizePixel = 0
+    Fill.Parent = Track
+    local FillCorner = Instance.new("UICorner") FillCorner.CornerRadius = UDim.new(1, 0) FillCorner.Parent = Fill
+    
+    local FillGrad = Instance.new("UIGradient")
+    FillGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent2),
+    }
+    FillGrad.Parent = Fill
+    
+    local dragging = false
+    local TrackBtn = Instance.new("TextButton")
+    TrackBtn.Size = UDim2.new(1, 0, 3, 0)
+    TrackBtn.Position = UDim2.new(0, 0, -1, 0)
+    TrackBtn.BackgroundTransparency = 1
+    TrackBtn.Text = ""
+    TrackBtn.Parent = Track
+    
+    TrackBtn.MouseButton1Down:Connect(function() dragging = true end)
+    UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+    UIS.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local rel = math.clamp((i.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+            local val = minV + (maxV - minV) * rel
+            Fill.Size = UDim2.new(rel, 0, 1, 0)
+            ValueLbl.Text = string.format("%.2f", val)
+            callback(val)
+        end
+    end)
+end
+
+local function CreateSection(text)
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Size = UDim2.new(1, -8, 0, 24)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text = "▸ " .. text
+    Lbl.TextColor3 = Theme.Accent
+    Lbl.Font = Enum.Font.GothamBold
+    Lbl.TextSize = 11
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.Parent = Scroll
+end
+
+-- ========== MENU ==========
+CreateSection("AIMBOT")
+CreateToggle("Aim Assist", "Hỗ trợ ngắm mượt", Config.AimAssist, function(v) Config.AimAssist = v end)
+CreateToggle("🎯 Head Aimbot", "Khóa cứng vùng đầu", Config.HeadAimbot, function(v) Config.HeadAimbot = v end)
+
+CreateSection("🔥 AIM MAGIC")
+CreateToggle("✨ Aim Magic", "Bắn đại cũng trúng đầu", Config.AimMagic, function(v) Config.AimMagic = v end)
+CreateToggle("📷 Camera Lock Head", "Camera bám theo đầu địch", Config.CameraLock, function(v) Config.CameraLock = v end)
+CreateSlider("Camera Smoothness", 0.05, 1, Config.CameraSmoothness, function(v) Config.CameraSmoothness = v end)
+
+CreateSection("AIM TUNING")
+CreateSlider("Head Smoothness", 0.05, 1, Config.HeadSmoothness, function(v) Config.HeadSmoothness = v end)
+CreateSlider("Aim FOV", 50, 500, Config.AimFOV, function(v) Config.AimFOV = v end)
+
+CreateSection("VISUAL")
+CreateToggle("ESP Highlight", "Hiện địch xuyên tường", Config.ESP, function(v) 
+    Config.ESP = v 
+    if not v then
+        for _, c in pairs(Workspace:GetDescendants()) do
+            if c.Name == "RivalsESP" then c:Destroy() end
+        end
+    end
+end)
+
+CreateSection("MOVEMENT & COMBAT")
+CreateToggle("👻 Noclip", "Đi xuyên tường (phím N)", Config.Noclip, function(v) 
+    Config.Noclip = v
+    if v then ApplyNoclip() end
+end)
+CreateToggle("🧱 Wallbang", "Bắn xuyên tường", Config.Wallbang, function(v) 
+    Config.Wallbang = v
+    if v then ApplyWallbang() else RemoveWallbang() end
+end)
+
+CreateSection("FILTER")
+CreateToggle("Team Check", "Bỏ qua đồng đội", Config.TeamCheck, function(v) Config.TeamCheck = v end)
+CreateToggle("Wall Check", "Chỉ aim khi thấy địch", Config.WallCheck, function(v) Config.WallCheck = v end)
+
+-- MINIMIZE / CLOSE
+local minimized = false
+local fullSize = UDim2.new(0, 280, 0, 560)
+local miniSize = UDim2.new(0, 280, 0, 62)
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+        Size = minimized and miniSize or fullSize
+    }):Play()
+    Scroll.Visible = not minimized
+end)
+CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+-- ========== NOCLIP ==========
+local noclipConns = {}
+function ApplyNoclip()
+    for _, c in pairs(noclipConns) do c:Disconnect() end
+    noclipConns = {}
+    local conn = RunService.Stepped:Connect(function()
+        if not Config.Noclip or not LocalPlayer.Character then return end
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end)
+    table.insert(noclipConns, conn)
+end
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.Noclip then ApplyNoclip() end
+end)
+
+-- ========== WALLBANG ==========
+local wallbangConns = {}
+local originalSizes = {}
+function ApplyWallbang()
+    if not Config.Wallbang then return end
+    RemoveWallbang()
+    local conn = RunService.Heartbeat:Connect(function()
+        if not Config.Wallbang then return end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        if not originalSizes[part] then originalSizes[part] = part.Size end
+                        if part.Name == "Head" then
+                            part.Size = Vector3.new(2.5, 2.5, 2.5)
+                        else
+                            part.Size = originalSizes[part] * 1.3
+                        end
+                        part.CanCollide = false
+                        part.Transparency = math.max(part.Transparency, 0.85)
                     end
-                else
-                    if self.VisualCache[Enemy] then self.VisualCache[Enemy]:Destroy() self.VisualCache[Enemy] = nil end
                 end
             end
-        end)
+        end
+    end)
+    table.insert(wallbangConns, conn)
+end
+function RemoveWallbang()
+    for _, c in pairs(wallbangConns) do c:Disconnect() end
+    wallbangConns = {}
+    for part, size in pairs(originalSizes) do
+        if part and part.Parent then
+            part.Size = size
+            part.CanCollide = true
+        end
     end
+    originalSizes = {}
 end
 
-function AxiomFixedMenu:ToggleAutoFarm(state)
-    AxiomState.AutoFarm = state
-    if self.Connections["AutoFarm"] then self.Connections["AutoFarm"]:Disconnect() self.Connections["AutoFarm"] = nil end
-    
-    if state then
-        local CurrentTarget = nil
-        self.Connections["AutoFarm"] = RunService.Heartbeat:Connect(function()
-            local Character = LocalPlayer.Character
-            local Root = Character and Character:FindFirstChild("HumanoidRootPart")
-            if not Root then return end
-            
-            local BV = Root:FindFirstChild("AxiomHold") or Instance.new("BodyVelocity")
-            if not BV.Parent then
-                BV.Name = "AxiomHold"
-                BV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                BV.Velocity = Vector3.new(0,0,0)
-                BV.Parent = Root
-            end
-            
-            local Enemies = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
-            if Enemies and (not CurrentTarget or not CurrentTarget.Parent or CurrentTarget.Humanoid.Health <= 0) then
-                local MaxDist = math.huge
-                for _, E in ipairs(Enemies:GetChildren()) do
-                    if E:IsA("Model") and E:FindFirstChild("HumanoidRootPart") and E:FindFirstChild("Humanoid") and E.Humanoid.Health > 0 then
-                        local Dist = (Root.Position - E.HumanoidRootPart.Position).Magnitude
-                        if Dist < MaxDist then MaxDist = Dist CurrentTarget = E end
-                    end
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.N then
+        Config.Noclip = not Config.Noclip
+        if Config.Noclip then ApplyNoclip() end
+        print("👻 Noclip: " .. (Config.Noclip and "ON" or "OFF"))
+    end
+end)
+
+-- ========== AIM LOGIC ==========
+local function IsValidTarget(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    local hum = player.Character:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    if not player.Character:FindFirstChild("Head") then return false end
+    if Config.TeamCheck and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then return false end
+    if Config.WallCheck then
+        local ray = Ray.new(Camera.CFrame.Position, (player.Character.Head.Position - Camera.CFrame.Position).Unit * 500)
+        local hit = Workspace:FindPartOnRay(ray, LocalPlayer.Character)
+        if hit and not hit:IsDescendantOf(player.Character) then return false end
+    end
+    return true
+end
+
+local function GetClosestHead()
+    local closest, shortest = nil, Config.AimFOV
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsValidTarget(player) then
+            local head = player.Character.Head
+            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+                if dist < shortest then
+                    shortest = dist
+                    closest = head
                 end
             end
-            
-            if CurrentTarget and CurrentTarget:FindFirstChild("HumanoidRootPart") then
-                Root.CFrame = CurrentTarget.HumanoidRootPart.CFrame * CFrame.new(0, AxiomState.YOffset, 0)
-                local Remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Validator")
-                if Remote then Remote:FireServer("AttackContinuous", CurrentTarget.HumanoidRootPart.Position) end
-            end
-        end)
-    else
-        local Root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if Root and Root:FindFirstChild("AxiomHold") then Root.AxiomHold:Destroy() end
+        end
     end
+    return closest
 end
 
-function AxiomFixedMenu:InitializeRenderPipeline()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "AxiomDirectFallback"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 260, 0, 240)
-    Frame.Position = UDim2.new(0.3, 0, 0.3, 0)
-    Frame.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
-    Frame.BorderSizePixel = 1
-    Frame.Active = true
-    Frame.Draggable = true
-    Frame.Parent = ScreenGui
-    
-    local Banner = Instance.new("TextLabel")
-    Banner.Size = UDim2.new(1, 0, 0, 35)
-    Banner.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    Banner.Text = "AXIOM CORE RENDERER"
-    Banner.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Banner.Font = Enum.Font.Code
-    Banner.TextSize = 13
-    Banner.Parent = Frame
-    
-    local function AppendButton(text, offset, trigger)
-        local Button = Instance.new("TextButton")
-        Button.Size = UDim2.new(0.9, 0, 0, 40)
-        Button.Position = UDim2.new(0.05, 0, 0, offset)
-        Button.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        Button.Text = text .. " : STABLE"
-        Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-        Button.Font = Enum.Font.SourceSans
-        Button.TextSize = 14
+local function AimAt(target, smoothness)
+    if not target then return end
+    local cur = Camera.CFrame
+    local new = CFrame.new(cur.Position, target.Position)
+    Camera.CFrame = cur:Lerp(new, smoothness)
+end
+
+-- ============================================
+-- 🔥 AIM MAGIC - BẮN ĐẠI CŨNG TRÚNG ĐẦU
+-- Ý tưởng: Hook mouse.Hit để redirect về đầu địch gần nhất
+-- ============================================
+local aimMagicConn = nil
+local function StartAimMagic()
+    if aimMagicConn then aimMagicConn:Disconnect() end
+    aimMagicConn = RunService.RenderStepped:Connect(function()
+        if not Config.AimMagic then return end
+        -- Tự động lấy head gần tâm màn hình
+        local best, bestDist = nil, math.huge
+        local viewportSize = Camera.ViewportSize
+        local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
         
-        local active = false
-        Button.MouseButton1Click:Connect(function()
-            active = not active
-            Button.BackgroundColor3 = active and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(35, 35, 40)
-            trigger(active)
-        end)
-        Button.Parent = Frame
-    end
-    
-    AppendButton("Tự động cày (Auto Farm)", 55, function(s) self:ToggleAutoFarm(s) end)
-    AppendButton("Định vị thực thể (ESP Radar)", 110, function(s) self:ToggleESP(s) end)
-    AppendButton("Xuyên tường vật lý (NoClip)", 165, function(s) self:ToggleNoClip(s) end)
-    
-    ScreenGui.Parent = TargetGuiParent
+        for _, player in pairs(Players:GetPlayers()) do
+            if IsValidTarget(player) then
+                local head = player.Character.Head
+                local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local d = (Vector2.new(sp.X, sp.Y) - screenCenter).Magnitude
+                    if d < bestDist and d < Config.AimFOV then
+                        bestDist = d
+                        best = head
+                    end
+                end
+            end
+        end
+        
+        if best then
+            -- Redirect con trỏ camera về head địch (bắn đại cũng trúng)
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, best.Position)
+            Camera.CFrame = cur:Lerp(new, 0.5)
+        end
+    end)
 end
 
-AxiomFixedMenu:InitializeRenderPipeline()
+-- ============================================
+-- 📷 CAMERA LOCK HEAD
+-- Camera tự động bám theo đầu địch gần nhất
+-- ============================================
+local cameraLockConn = nil
+local function StartCameraLock()
+    if cameraLockConn then cameraLockConn:Disconnect() end
+    cameraLockConn = RunService.RenderStepped:Connect(function()
+        if not Config.CameraLock then return end
+        local head = GetClosestHead()
+        if head then
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, head.Position)
+            Camera.CFrame = cur:Lerp(new, Config.CameraSmoothness)
+        end
+    end)
+end
+
+-- Khởi động các service
+StartAimMagic()
+StartCameraLock()
+
+-- ========== ESP ==========
+local function UpdateESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local ex = player.Character:FindFirstChild("RivalsESP")
+            if Config.ESP and not ex then
+                local H = Instance.new("Highlight")
+                H.Name = "RivalsESP"
+                H.FillColor = Theme.Red
+                H.FillTransparency = 0.55
+                H.OutlineColor = Color3.fromRGB(255, 255, 255)
+                H.OutlineTransparency = 0
+                H.Parent = player.Character
+            elseif not Config.ESP and ex then
+                ex:Destroy()
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    UpdateESP()
+    -- Aim Assist / Head Aimbot chỉ chạy khi giữ chuột phải
+    if UIS:IsMouseButtonPressed(Config.AimKey) then
+        if Config.HeadAimbot then
+            local head = GetClosestHead()
+            if head then AimAt(head, Config.HeadSmoothness) end
+        elseif Config.AimAssist then
+            local target = GetClosestHead()
+            if target then AimAt(target, Config.AimSmoothness) end
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function()
+        task.wait(1)
+        UpdateESP()
+    end)
+end)
+
+print("⚔️ TOÀN BÁ KHÍ v5 loaded! MAGIC EDITION 💀")
+print("✨ Aim Magic: bắn đại cũng trúng đầu")
+print("📷 Camera Lock: camera bám đầu địch")
+print("📌 Phím N = bật/tắt Noclip")
