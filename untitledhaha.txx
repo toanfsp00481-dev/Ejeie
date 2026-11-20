@@ -1,0 +1,914 @@
+--[[
+    ⚔️ TOÀN BÁ KHÍ - Rivals Script v10
+    Silent Aim (ZERO LAG) + Aim Magic + Camera Lock + Noclip + Wallbang + ESP
+    
+    🚀 TỐI ƯU HOÀN TOÀN:
+    - Silent Aim: cache CFrame sẵn, hook chỉ return (không tính toán)
+    - Target cache 30Hz, ESP 5Hz, Wallbang 7Hz, Noclip 10Hz
+    - Flag silentActive (bool) để early-return cực nhanh
+    - Không pcall, không CFrame.new trong hook
+    - Fallback an toàn khi cache nil → không đơ
+    
+    Dành cho mục đích học tập
+]]
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local Workspace    = game:GetService("Workspace")
+local UIS          = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera       = Workspace.CurrentCamera
+local LocalPlayer  = Players.LocalPlayer
+local Mouse        = LocalPlayer:GetMouse()
+
+-- ========== SAFE WRAPPER ==========
+local function Safe(fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok then warn("[ToanBaKhi] " .. tostring(err)) end
+    end
+end
+
+-- ========== CONFIG ==========
+local Config = {
+    AimAssist      = true,
+    HeadAimbot     = false,
+    AimMagic       = false,
+    CameraLock     = false,
+    SilentAim      = false,
+    ESP            = true,
+    Noclip         = false,
+    Wallbang       = false,
+    AimFOV         = 250,
+    AimSmoothness  = 0.3,
+    HeadSmoothness = 0.5,
+    CameraSmooth   = 0.25,
+    SilentFOV      = 300,
+    TeamCheck      = true,
+    WallCheck      = false,
+    AimKey         = Enum.UserInputType.MouseButton2,
+    -- Optimization
+    TargetUpdateRate = 1/30,
+    LoopRate         = 1/60,
+}
+
+-- ========== THEME ==========
+local Theme = {
+    Bg         = Color3.fromRGB(18, 18, 24),
+    Panel      = Color3.fromRGB(28, 28, 38),
+    PanelHover = Color3.fromRGB(38, 38, 52),
+    Accent     = Color3.fromRGB(138, 92, 255),
+    Accent2    = Color3.fromRGB(255, 92, 180),
+    Green      = Color3.fromRGB(0, 220, 130),
+    Red        = Color3.fromRGB(255, 80, 80),
+    Text       = Color3.fromRGB(240, 240, 255),
+    SubText    = Color3.fromRGB(150, 150, 180),
+    Stroke     = Color3.fromRGB(60, 60, 85),
+}
+
+-- ========== CLEANUP ==========
+local Connections = {}
+local function AddConn(conn)
+    table.insert(Connections, conn)
+    return conn
+end
+local function DisconnectAll()
+    for _, c in pairs(Connections) do pcall(function() c:Disconnect() end) end
+    Connections = {}
+end
+
+-- ========== GUI ==========
+pcall(function()
+    local cg = game:GetService("CoreGui")
+    if cg:FindFirstChild("ToanBaKhi") then cg.ToanBaKhi:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ToanBaKhi"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 280, 0, 620)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -310)
+MainFrame.BackgroundColor3 = Theme.Bg
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 14)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Theme.Accent
+MainStroke.Thickness = 1.5
+MainStroke.Transparency = 0.3
+MainStroke.Parent = MainFrame
+
+-- HEADER
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 62)
+Header.BackgroundColor3 = Theme.Panel
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 14)
+HeaderCorner.Parent = Header
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Size = UDim2.new(1, 0, 0, 14)
+HeaderFix.Position = UDim2.new(0, 0, 1, -14)
+HeaderFix.BackgroundColor3 = Theme.Panel
+HeaderFix.BorderSizePixel = 0
+HeaderFix.Parent = Header
+
+local HeaderGrad = Instance.new("UIGradient")
+HeaderGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Theme.Accent),
+    ColorSequenceKeypoint.new(1, Theme.Accent2),
+}
+HeaderGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.65),
+    NumberSequenceKeypoint.new(1, 0.85),
+}
+HeaderGrad.Rotation = 15
+HeaderGrad.Parent = Header
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -20, 0, 30)
+TitleText.Position = UDim2.new(0, 15, 0, 10)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "⚔️ TOÀN BÁ KHÍ"
+TitleText.TextColor3 = Theme.Text
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.TextSize = 18
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = Header
+
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Size = UDim2.new(1, -20, 0, 16)
+SubTitle.Position = UDim2.new(0, 15, 0, 38)
+SubTitle.BackgroundTransparency = 1
+SubTitle.Text = "RIVALS • v10.0 • ZERO LAG"
+SubTitle.TextColor3 = Theme.SubText
+SubTitle.Font = Enum.Font.GothamMedium
+SubTitle.TextSize = 10
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.Parent = Header
+
+local StatusDot = Instance.new("Frame")
+StatusDot.Size = UDim2.new(0, 8, 0, 8)
+StatusDot.Position = UDim2.new(1, -22, 0, 14)
+StatusDot.BackgroundColor3 = Theme.Green
+StatusDot.BorderSizePixel = 0
+StatusDot.Parent = Header
+local DotCorner = Instance.new("UICorner")
+DotCorner.CornerRadius = UDim.new(1, 0)
+DotCorner.Parent = StatusDot
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 22, 0, 22)
+MinBtn.Position = UDim2.new(1, -52, 0, 38)
+MinBtn.BackgroundColor3 = Theme.PanelHover
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Theme.Text
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 16
+MinBtn.Parent = Header
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinBtn
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+CloseBtn.Position = UDim2.new(1, -26, 0, 38)
+CloseBtn.BackgroundColor3 = Theme.PanelHover
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Theme.Red
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.Parent = Header
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -16, 1, -72)
+Scroll.Position = UDim2.new(0, 8, 0, 66)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Theme.Accent
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = MainFrame
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 6)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = Scroll
+
+-- ========== COMPONENTS ==========
+local function CreateToggle(name, desc, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 44)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local IC = Instance.new("UICorner") IC.CornerRadius = UDim.new(0, 10) IC.Parent = Item
+    local IS = Instance.new("UIStroke") IS.Color = Theme.Stroke IS.Thickness = 1 IS.Parent = Item
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -60, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 12
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+
+    local Desc = Instance.new("TextLabel")
+    Desc.Size = UDim2.new(1, -60, 0, 14)
+    Desc.Position = UDim2.new(0, 14, 0, 24)
+    Desc.BackgroundTransparency = 1
+    Desc.Text = desc or ""
+    Desc.TextColor3 = Theme.SubText
+    Desc.Font = Enum.Font.Gotham
+    Desc.TextSize = 9
+    Desc.TextXAlignment = Enum.TextXAlignment.Left
+    Desc.Parent = Item
+
+    local SwitchBg = Instance.new("Frame")
+    SwitchBg.Size = UDim2.new(0, 38, 0, 20)
+    SwitchBg.Position = UDim2.new(1, -50, 0.5, -10)
+    SwitchBg.BackgroundColor3 = default and Theme.Accent or Theme.PanelHover
+    SwitchBg.BorderSizePixel = 0
+    SwitchBg.Parent = Item
+    local SC = Instance.new("UICorner") SC.CornerRadius = UDim.new(1, 0) SC.Parent = SwitchBg
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 14, 0, 14)
+    Knob.Position = default and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+    Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = SwitchBg
+    local KC = Instance.new("UICorner") KC.CornerRadius = UDim.new(1, 0) KC.Parent = Knob
+
+    local Click = Instance.new("TextButton")
+    Click.Size = UDim2.new(1, 0, 1, 0)
+    Click.BackgroundTransparency = 1
+    Click.Text = ""
+    Click.Parent = Item
+
+    local state = default
+    Click.MouseButton1Click:Connect(Safe(function()
+        state = not state
+        TweenService:Create(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = state and Theme.Accent or Theme.PanelHover}):Play()
+        TweenService:Create(Knob, TweenInfo.new(0.2), {Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)}):Play()
+        TweenService:Create(IS, TweenInfo.new(0.2), {Color = state and Theme.Accent or Theme.Stroke}):Play()
+        callback(state)
+    end))
+
+    Click.MouseEnter:Connect(Safe(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.PanelHover}):Play()
+    end))
+    Click.MouseLeave:Connect(Safe(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Panel}):Play()
+    end))
+end
+
+local function CreateSlider(name, minV, maxV, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 52)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local IC = Instance.new("UICorner") IC.CornerRadius = UDim.new(0, 10) IC.Parent = Item
+    local IS = Instance.new("UIStroke") IS.Color = Theme.Stroke IS.Thickness = 1 IS.Parent = Item
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -80, 0, 18)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+
+    local ValueLbl = Instance.new("TextLabel")
+    ValueLbl.Size = UDim2.new(0, 60, 0, 18)
+    ValueLbl.Position = UDim2.new(1, -74, 0, 6)
+    ValueLbl.BackgroundTransparency = 1
+    ValueLbl.Text = tostring(default)
+    ValueLbl.TextColor3 = Theme.Accent
+    ValueLbl.Font = Enum.Font.GothamBold
+    ValueLbl.TextSize = 11
+    ValueLbl.TextXAlignment = Enum.TextXAlignment.Right
+    ValueLbl.Parent = Item
+
+    local Track = Instance.new("Frame")
+    Track.Size = UDim2.new(1, -28, 0, 6)
+    Track.Position = UDim2.new(0, 14, 0, 32)
+    Track.BackgroundColor3 = Theme.PanelHover
+    Track.BorderSizePixel = 0
+    Track.Parent = Item
+    local TC = Instance.new("UICorner") TC.CornerRadius = UDim.new(1, 0) TC.Parent = Track
+
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((default - minV) / (maxV - minV), 0, 1, 0)
+    Fill.BackgroundColor3 = Theme.Accent
+    Fill.BorderSizePixel = 0
+    Fill.Parent = Track
+    local FC = Instance.new("UICorner") FC.CornerRadius = UDim.new(1, 0) FC.Parent = Fill
+
+    local FG = Instance.new("UIGradient")
+    FG.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent2),
+    }
+    FG.Parent = Fill
+
+    local dragging = false
+    local TrackBtn = Instance.new("TextButton")
+    TrackBtn.Size = UDim2.new(1, 0, 3, 0)
+    TrackBtn.Position = UDim2.new(0, 0, -1, 0)
+    TrackBtn.BackgroundTransparency = 1
+    TrackBtn.Text = ""
+    TrackBtn.Parent = Track
+
+    TrackBtn.MouseButton1Down:Connect(Safe(function() dragging = true end))
+    AddConn(UIS.InputEnded:Connect(Safe(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)))
+    AddConn(UIS.InputChanged:Connect(Safe(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local rel = math.clamp((i.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+            local val = minV + (maxV - minV) * rel
+            Fill.Size = UDim2.new(rel, 0, 1, 0)
+            ValueLbl.Text = string.format("%.2f", val)
+            callback(val)
+        end
+    end)))
+end
+
+local function CreateSection(text)
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Size = UDim2.new(1, -8, 0, 24)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text = "▸ " .. text
+    Lbl.TextColor3 = Theme.Accent
+    Lbl.Font = Enum.Font.GothamBold
+    Lbl.TextSize = 11
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.Parent = Scroll
+end
+
+-- ========== MENU ==========
+CreateSection("🎯 SILENT AIM")
+CreateToggle("⚡ Silent Aim", "Đạn tự redirect vào địch", Config.SilentAim, function(v) Config.SilentAim = v end)
+CreateSlider("Silent FOV", 50, 800, Config.SilentFOV, function(v) Config.SilentFOV = v end)
+
+CreateSection("AIMBOT")
+CreateToggle("Aim Assist", "Hỗ trợ ngắm mượt", Config.AimAssist, function(v) Config.AimAssist = v end)
+CreateToggle("🎯 Head Aimbot", "Khóa cứng vùng đầu", Config.HeadAimbot, function(v) Config.HeadAimbot = v end)
+
+CreateSection("🔥 AIM MAGIC")
+CreateToggle("✨ Aim Magic", "Bắn đại cũng trúng đầu", Config.AimMagic, function(v) Config.AimMagic = v end)
+CreateToggle("📷 Camera Lock Head", "Camera bám theo đầu địch", Config.CameraLock, function(v) Config.CameraLock = v end)
+CreateSlider("Camera Smoothness", 0.05, 1, Config.CameraSmooth, function(v) Config.CameraSmooth = v end)
+
+CreateSection("AIM TUNING")
+CreateSlider("Head Smoothness", 0.05, 1, Config.HeadSmoothness, function(v) Config.HeadSmoothness = v end)
+CreateSlider("Aim FOV", 50, 500, Config.AimFOV, function(v) Config.AimFOV = v end)
+
+CreateSection("VISUAL")
+CreateToggle("ESP Highlight", "Hiện địch xuyên tường", Config.ESP, function(v)
+    Config.ESP = v
+    if not v then
+        for _, c in pairs(Workspace:GetDescendants()) do
+            if c.Name == "RivalsESP" then pcall(function() c:Destroy() end) end
+        end
+        espCache = {}
+    end
+end)
+
+CreateSection("MOVEMENT & COMBAT")
+CreateToggle("👻 Noclip", "Đi xuyên tường (phím N)", Config.Noclip, function(v)
+    Config.Noclip = v
+    if v then ApplyNoclip() end
+end)
+CreateToggle("🧱 Wallbang", "Bắn xuyên tường", Config.Wallbang, function(v)
+    Config.Wallbang = v
+    if v then ApplyWallbang() else RemoveWallbang() end
+end)
+
+CreateSection("FILTER")
+CreateToggle("Team Check", "Bỏ qua đồng đội", Config.TeamCheck, function(v) Config.TeamCheck = v end)
+CreateToggle("Wall Check", "Chỉ aim khi thấy địch", Config.WallCheck, function(v) Config.WallCheck = v end)
+
+-- MINIMIZE / CLOSE
+local minimized = false
+local fullSize = UDim2.new(0, 280, 0, 620)
+local miniSize = UDim2.new(0, 280, 0, 62)
+MinBtn.MouseButton1Click:Connect(Safe(function()
+    minimized = not minimized
+    TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+        Size = minimized and miniSize or fullSize
+    }):Play()
+    Scroll.Visible = not minimized
+end))
+
+CloseBtn.MouseButton1Click:Connect(Safe(function()
+    DisconnectAll()
+    RemoveWallbang()
+    pcall(function() ScreenGui:Destroy() end)
+end))
+
+-- ========== HELPERS ==========
+local camPosCache = Vector3.zero
+local function UpdateCamCache()
+    camPosCache = Camera.CFrame.Position
+end
+
+local function GetAliveChar(player)
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+    return char
+end
+
+local function IsValidTarget(player, char)
+    if player == LocalPlayer then return false end
+    if not char then return false end
+    if not char:FindFirstChild("Head") then return false end
+    if Config.TeamCheck and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+        return false
+    end
+    return true
+end
+
+-- ========== TARGET CACHE ==========
+local targetCache = { head = nil, dist = math.huge }
+local centerTargetCache = { head = nil, dist = math.huge }
+local lastTargetUpdate = 0
+local lastCenterUpdate = 0
+
+local function RefreshTargetCache(now)
+    if now - lastTargetUpdate < Config.TargetUpdateRate then return end
+    lastTargetUpdate = now
+
+    local best, shortest = nil, Config.AimFOV
+    local mx, my = Mouse.X, Mouse.Y
+    local camPos = camPosCache
+    local myTeam = LocalPlayer.Team
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head and IsValidTarget(player, char) then
+                    if (head.Position - camPos).Magnitude < 500 then
+                        local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen then
+                            local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(mx, my)).Magnitude
+                            if d < shortest then
+                                shortest = d
+                                best = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    targetCache.head = best
+    targetCache.dist = shortest
+end
+
+local function RefreshCenterCache(now)
+    if now - lastCenterUpdate < Config.TargetUpdateRate then return end
+    lastCenterUpdate = now
+
+    local best, bestDist = nil, Config.SilentFOV
+    local vp = Camera.ViewportSize
+    local cx, cy = vp.X / 2, vp.Y / 2
+    local camPos = camPosCache
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head and IsValidTarget(player, char) then
+                    if (head.Position - camPos).Magnitude < 500 then
+                        local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen then
+                            local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(cx, cy)).Magnitude
+                            if d < bestDist then
+                                bestDist = d
+                                best = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    centerTargetCache.head = best
+    centerTargetCache.dist = bestDist
+end
+
+-- ========== NOCLIP ==========
+local noclipRunning = false
+function ApplyNoclip()
+    if noclipRunning then return end
+    noclipRunning = true
+    task.spawn(function()
+        while Config.Noclip do
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+        noclipRunning = false
+    end)
+end
+
+-- ========== WALLBANG ==========
+local wallbangConn = nil
+local originalData = {}
+local lastWallbangUpdate = 0
+local WALLBANG_UPDATE_RATE = 0.15
+
+local function RestorePart(part, data)
+    if part and part.Parent then
+        pcall(function()
+            part.Size = data.Size
+            part.CanCollide = data.CanCollide
+            part.Transparency = data.Transparency
+        end)
+    end
+end
+
+function RemoveWallbang()
+    if wallbangConn then
+        pcall(function() wallbangConn:Disconnect() end)
+        wallbangConn = nil
+    end
+    for part, data in pairs(originalData) do
+        RestorePart(part, data)
+    end
+    originalData = {}
+end
+
+function ApplyWallbang()
+    RemoveWallbang()
+    wallbangConn = RunService.Heartbeat:Connect(Safe(function()
+        if not Config.Wallbang then return end
+        local now = tick()
+        if now - lastWallbangUpdate < WALLBANG_UPDATE_RATE then return end
+        lastWallbangUpdate = now
+
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local char = p.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            if not originalData[part] then
+                                originalData[part] = {
+                                    Size = part.Size,
+                                    CanCollide = part.CanCollide,
+                                    Transparency = part.Transparency,
+                                }
+                            end
+                            local d = originalData[part]
+                            if part.Name == "Head" then
+                                if part.Size ~= Vector3.new(2.5, 2.5, 2.5) then
+                                    part.Size = Vector3.new(2.5, 2.5, 2.5)
+                                end
+                            else
+                                local newSize = d.Size * 1.3
+                                if part.Size ~= newSize then
+                                    part.Size = newSize
+                                end
+                            end
+                            if part.CanCollide then part.CanCollide = false end
+                            local targetTrans = math.max(d.Transparency, 0.85)
+                            if math.abs(part.Transparency - targetTrans) > 0.01 then
+                                part.Transparency = targetTrans
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end))
+end
+
+-- ========== ESP ==========
+local espCache = {}
+local lastEspUpdate = 0
+local ESP_UPDATE_RATE = 0.2
+
+local function UpdateESP(now)
+    if now - lastEspUpdate < ESP_UPDATE_RATE then return end
+    lastEspUpdate = now
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = GetAliveChar(player)
+            if Config.ESP and char then
+                local existing = espCache[player]
+                if not existing or existing.Parent ~= char then
+                    if existing then pcall(function() existing:Destroy() end) end
+                    local h = Instance.new("Highlight")
+                    h.Name = "RivalsESP"
+                    h.FillColor = Theme.Red
+                    h.FillTransparency = 0.55
+                    h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    h.OutlineTransparency = 0
+                    h.Parent = char
+                    espCache[player] = h
+                end
+            elseif not Config.ESP and espCache[player] then
+                pcall(function() espCache[player]:Destroy() end)
+                espCache[player] = nil
+            end
+        end
+    end
+end
+
+-- ================================================================
+-- ⚡ SILENT AIM - ZERO LAG VERSION
+-- Cache CFrame sẵn, hook chỉ return — không tính toán trong hook
+-- ================================================================
+local silentTarget = nil
+local silentAimHooked = false
+local silentAimMethod = "none"
+
+-- Cache cực nhanh: hook chỉ đọc mấy biến này
+local cachedHitCFrame = nil
+local cachedTargetPart = nil
+local silentActive = false
+
+local function SetupSilentAim()
+    if silentAimHooked then return end
+
+    local hasGetRawMeta = (typeof(getrawmetatable) == "function")
+    local hasSetReadonly = (typeof(setreadonly) == "function")
+    local hasIsReadonly  = (typeof(isreadonly) == "function")
+
+    -- === PHƯƠNG ÁN A: getrawmetatable(Mouse) ===
+    if hasGetRawMeta then
+        local okA, errA = pcall(function()
+            local mt = getrawmetatable(Mouse)
+            if not mt then error("no mouse metatable") end
+            local oldIndex = rawget(mt, "__index")
+            if not oldIndex then error("no __index") end
+
+            local wasRO = false
+            if hasIsReadonly and hasSetReadonly then
+                wasRO = isreadonly(mt)
+                if wasRO then setreadonly(mt, false) end
+            end
+
+            rawset(mt, "__index", function(self, key)
+                -- 🚀 EARLY RETURN: cực nhanh khi Silent Aim OFF
+                if not silentActive then
+                    return oldIndex(self, key)
+                end
+                -- 🚀 Chỉ can thiệp Hit và Target
+                if key == "Hit" then
+                    return cachedHitCFrame or oldIndex(self, key)
+                elseif key == "Target" then
+                    return cachedTargetPart or oldIndex(self, key)
+                end
+                return oldIndex(self, key)
+            end)
+
+            if wasRO and hasSetReadonly then setreadonly(mt, true) end
+        end)
+
+        if okA then
+            silentAimHooked = true
+            silentAimMethod = "getrawmetatable(Mouse) ✓"
+            print("⚡ Silent Aim: " .. silentAimMethod)
+            return
+        else
+            warn("[Silent Aim] Method A failed: " .. tostring(errA))
+        end
+    end
+
+    -- === PHƯƠNG ÁN B: fallback ===
+    if typeof(hookmetamethod) == "function" then
+        local okB, errB = pcall(function()
+            local oldIndex
+            oldIndex = hookmetamethod(game, "__index", function(self, key)
+                if not silentActive then
+                    return oldIndex(self, key)
+                end
+                if key ~= "Hit" and key ~= "Target" then
+                    return oldIndex(self, key)
+                end
+                if typeof(self) == "Instance" and self.ClassName == "Mouse" then
+                    if key == "Hit" then
+                        return cachedHitCFrame or oldIndex(self, key)
+                    elseif key == "Target" then
+                        return cachedTargetPart or oldIndex(self, key)
+                    end
+                end
+                return oldIndex(self, key)
+            end)
+        end)
+        if okB then
+            silentAimHooked = true
+            silentAimMethod = "__index fallback"
+            print("⚡ Silent Aim: " .. silentAimMethod)
+            return
+        else
+            warn("[Silent Aim] Method B failed: " .. tostring(errB))
+        end
+    end
+
+    Config.SilentAim = false
+    warn("⚠️ Silent Aim không khả dụng trên executor này")
+end
+
+pcall(SetupSilentAim)
+
+-- Cập nhật cache silent (chạy trong main loop, KHÔNG phải trong hook)
+local function UpdateSilentCache()
+    if not Config.SilentAim then
+        silentActive = false
+        cachedHitCFrame = nil
+        cachedTargetPart = nil
+        silentTarget = nil
+        return
+    end
+
+    local ct = centerTargetCache.head
+    if ct and ct.Parent and ct:IsDescendantOf(Workspace) then
+        silentTarget = ct
+    else
+        silentTarget = nil
+    end
+
+    if not silentTarget then
+        silentActive = false
+        cachedHitCFrame = nil
+        cachedTargetPart = nil
+        return
+    end
+
+    -- 🔥 TÍNH CFrame 1 LẦN DUY NHẤT Ở ĐÂY
+    local ok, cf = pcall(function()
+        return CFrame.new(camPosCache, silentTarget.Position)
+    end)
+
+    if ok and cf then
+        cachedHitCFrame = cf
+        cachedTargetPart = silentTarget
+        silentActive = true
+    else
+        silentActive = false
+        cachedHitCFrame = nil
+        cachedTargetPart = nil
+    end
+end
+
+-- ================================================================
+-- MAIN LOOP
+-- ================================================================
+local lastLoopUpdate = 0
+
+AddConn(RunService.RenderStepped:Connect(Safe(function()
+    local now = tick()
+    if now - lastLoopUpdate < Config.LoopRate then return end
+    lastLoopUpdate = now
+
+    -- Update camera cache
+    UpdateCamCache()
+
+    -- Refresh target cache (30Hz)
+    RefreshTargetCache(now)
+    RefreshCenterCache(now)
+
+    -- ⚡ Silent Aim: update cache (đã tối ưu)
+    UpdateSilentCache()
+
+    -- ESP (5Hz)
+    UpdateESP(now)
+
+    -- Aim Assist / Head Aimbot
+    if UIS:IsMouseButtonPressed(Config.AimKey) then
+        local target = targetCache.head
+        if target and target.Parent then
+            local smooth = Config.HeadAimbot and Config.HeadSmoothness or Config.AimSmoothness
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, target.Position)
+            Camera.CFrame = cur:Lerp(new, smooth)
+        end
+    end
+
+    -- Camera Lock
+    if Config.CameraLock then
+        local head = targetCache.head
+        if head and head.Parent then
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, head.Position)
+            Camera.CFrame = cur:Lerp(new, Config.CameraSmooth)
+        end
+    end
+
+    -- Aim Magic
+    if Config.AimMagic then
+        local best = centerTargetCache.head
+        if best and best.Parent then
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, best.Position)
+            Camera.CFrame = cur:Lerp(new, 0.5)
+        end
+    end
+end)))
+
+-- ========== KEYBIND ==========
+AddConn(UIS.InputBegan:Connect(Safe(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.N then
+        Config.Noclip = not Config.Noclip
+        if Config.Noclip then ApplyNoclip() end
+        print("👻 Noclip: " .. (Config.Noclip and "ON" or "OFF"))
+    end
+end)))
+
+-- ========== CHARACTER RESPAWN ==========
+AddConn(LocalPlayer.CharacterAdded:Connect(Safe(function()
+    task.wait(1)
+    silentTarget = nil
+    silentActive = false
+    cachedHitCFrame = nil
+    cachedTargetPart = nil
+    targetCache.head = nil
+    centerTargetCache.head = nil
+    lastTargetUpdate = 0
+    lastCenterUpdate = 0
+    if Config.Noclip then ApplyNoclip() end
+    if Config.Wallbang then ApplyWallbang() end
+end)))
+
+-- ========== PLAYER CLEANUP ==========
+AddConn(Players.PlayerRemoving:Connect(Safe(function(p)
+    if espCache[p] then
+        pcall(function() espCache[p]:Destroy() end)
+        espCache[p] = nil
+    end
+    local function clearIfFrom(pCache)
+        if pCache.head and p.Character then
+            local ok = pcall(function()
+                if pCache.head and pCache.head:IsDescendantOf(p.Character) then
+                    pCache.head = nil
+                end
+            end)
+        end
+    end
+    clearIfFrom(targetCache)
+    clearIfFrom(centerTargetCache)
+    if silentTarget and p.Character then
+        pcall(function()
+            if silentTarget and silentTarget:IsDescendantOf(p.Character) then
+                silentTarget = nil
+                silentActive = false
+                cachedHitCFrame = nil
+                cachedTargetPart = nil
+            end
+        end)
+    end
+end)))
+
+-- ========== CLEANUP ==========
+game:BindToClose(Safe(function()
+    DisconnectAll()
+    RemoveWallbang()
+    pcall(function() ScreenGui:Destroy() end)
+end))
+
+print("⚔️ TOÀN BÁ KHÍ v10 loaded! ZERO LAG 💀")
+print("⚡ Silent Aim: " .. silentAimMethod)
+print("🚀 Tối ưu: Target 30Hz | ESP 5Hz | Wallbang 7Hz | Noclip 10Hz")
+print("🚀 Silent Aim: cache CFrame sẵn — hook chỉ return")
+print("📌 Phím N = Noclip")
