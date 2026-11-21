@@ -1,0 +1,861 @@
+--[[
+    ⚡ ELECTRIC CYBER - Rivals Script
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    Chức năng:
+    • 📍 Định vị (ESP) - thấy địch xuyên tường
+    • 👻 Noclip - đi xuyên tường
+    • ⚡ Silent Aim - bắn đâu trúng đó (ZERO LAG)
+    • 🎯 Aim Body - bắn vào người vẫn đỏ (hitbox)
+    • 🔒 Center Lock - bắn xung quanh cũng vô đầu
+    • 🚀 Fix lag - tối ưu toàn bộ
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+]]
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local Workspace    = game:GetService("Workspace")
+local UIS          = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera       = Workspace.CurrentCamera
+local LocalPlayer  = Players.LocalPlayer
+local Mouse        = LocalPlayer:GetMouse()
+
+-- ========== SAFE ==========
+local function Safe(fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok then warn("[ElectricCyber] " .. tostring(err)) end
+    end
+end
+
+-- ========== CONFIG ==========
+local Config = {
+    ESP            = true,
+    Noclip         = false,
+    SilentAim      = false,
+    AimBody        = false,
+    CenterLock     = false,
+    -- Tuning
+    SilentFOV      = 300,
+    AimBodyFOV     = 250,
+    CenterFOV      = 350,
+    SilentPart     = "Head",
+    AimBodyPart    = "HumanoidRootPart",
+    TeamCheck      = true,
+    -- Optimization
+    TargetUpdate   = 1/30,
+    LoopRate       = 1/60,
+    ESPRate        = 0.2,
+}
+
+-- ========== THEME (CYBER) ==========
+local Theme = {
+    Bg         = Color3.fromRGB(10, 12, 20),
+    Panel      = Color3.fromRGB(18, 22, 35),
+    PanelHover = Color3.fromRGB(28, 34, 52),
+    Accent     = Color3.fromRGB(0, 220, 255),   -- Cyan cyber
+    Accent2    = Color3.fromRGB(180, 0, 255),   -- Purple
+    Green      = Color3.fromRGB(0, 255, 160),
+    Red        = Color3.fromRGB(255, 60, 60),
+    Text       = Color3.fromRGB(230, 245, 255),
+    SubText    = Color3.fromRGB(120, 150, 180),
+    Stroke     = Color3.fromRGB(40, 60, 90),
+}
+
+-- ========== CLEANUP ==========
+local Connections = {}
+local function AddConn(c)
+    table.insert(Connections, c)
+    return c
+end
+local function DisconnectAll()
+    for _, c in pairs(Connections) do pcall(function() c:Disconnect() end) end
+    Connections = {}
+end
+
+-- ========== GUI ==========
+pcall(function()
+    local cg = game:GetService("CoreGui")
+    if cg:FindFirstChild("ElectricCyber") then cg.ElectricCyber:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ElectricCyber"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 280, 0, 560)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -280)
+MainFrame.BackgroundColor3 = Theme.Bg
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 14)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Theme.Accent
+MainStroke.Thickness = 1.5
+MainStroke.Transparency = 0.2
+MainStroke.Parent = MainFrame
+
+-- Glow effect
+local Glow = Instance.new("ImageLabel")
+Glow.Name = "Glow"
+Glow.Size = UDim2.new(1, 40, 1, 40)
+Glow.Position = UDim2.new(0, -20, 0, -20)
+Glow.BackgroundTransparency = 1
+Glow.Image = "rbxassetid://5028857084"
+Glow.ImageColor3 = Theme.Accent
+Glow.ImageTransparency = 0.85
+Glow.ScaleType = Enum.ScaleType.Slice
+Glow.SliceCenter = Rect.new(24, 24, 276, 276)
+Glow.ZIndex = 0
+Glow.Parent = MainFrame
+
+-- HEADER
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 62)
+Header.BackgroundColor3 = Theme.Panel
+Header.BorderSizePixel = 0
+Header.ZIndex = 2
+Header.Parent = MainFrame
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 14)
+HeaderCorner.Parent = Header
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Size = UDim2.new(1, 0, 0, 14)
+HeaderFix.Position = UDim2.new(0, 0, 1, -14)
+HeaderFix.BackgroundColor3 = Theme.Panel
+HeaderFix.BorderSizePixel = 0
+HeaderFix.ZIndex = 2
+HeaderFix.Parent = Header
+
+local HeaderGrad = Instance.new("UIGradient")
+HeaderGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Theme.Accent),
+    ColorSequenceKeypoint.new(1, Theme.Accent2),
+}
+HeaderGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.6),
+    NumberSequenceKeypoint.new(1, 0.85),
+}
+HeaderGrad.Rotation = 20
+HeaderGrad.Parent = Header
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -20, 0, 30)
+TitleText.Position = UDim2.new(0, 15, 0, 10)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "⚡ ELECTRIC CYBER"
+TitleText.TextColor3 = Theme.Text
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.TextSize = 18
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.ZIndex = 3
+TitleText.Parent = Header
+
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Size = UDim2.new(1, -20, 0, 16)
+SubTitle.Position = UDim2.new(0, 15, 0, 38)
+SubTitle.BackgroundTransparency = 1
+SubTitle.Text = "RIVALS • v1.0 • CYBER EDITION"
+SubTitle.TextColor3 = Theme.SubText
+SubTitle.Font = Enum.Font.GothamMedium
+SubTitle.TextSize = 10
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.ZIndex = 3
+SubTitle.Parent = Header
+
+-- Status dot (pulsing)
+local StatusDot = Instance.new("Frame")
+StatusDot.Size = UDim2.new(0, 8, 0, 8)
+StatusDot.Position = UDim2.new(1, -22, 0, 14)
+StatusDot.BackgroundColor3 = Theme.Green
+StatusDot.BorderSizePixel = 0
+StatusDot.ZIndex = 3
+StatusDot.Parent = Header
+local DotCorner = Instance.new("UICorner")
+DotCorner.CornerRadius = UDim.new(1, 0)
+DotCorner.Parent = StatusDot
+
+-- Pulse tween
+task.spawn(function()
+    while StatusDot.Parent do
+        local tw = TweenService:Create(StatusDot, TweenInfo.new(1), {BackgroundTransparency = 0.6})
+        tw:Play()
+        tw.Completed:Wait()
+        local tw2 = TweenService:Create(StatusDot, TweenInfo.new(1), {BackgroundTransparency = 0})
+        tw2:Play()
+        tw2.Completed:Wait()
+    end
+end)
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 22, 0, 22)
+MinBtn.Position = UDim2.new(1, -52, 0, 38)
+MinBtn.BackgroundColor3 = Theme.PanelHover
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Theme.Text
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 16
+MinBtn.ZIndex = 3
+MinBtn.Parent = Header
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinBtn
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+CloseBtn.Position = UDim2.new(1, -26, 0, 38)
+CloseBtn.BackgroundColor3 = Theme.PanelHover
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Theme.Red
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.ZIndex = 3
+CloseBtn.Parent = Header
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -16, 1, -72)
+Scroll.Position = UDim2.new(0, 8, 0, 66)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Theme.Accent
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.ZIndex = 2
+Scroll.Parent = MainFrame
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 6)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = Scroll
+
+-- ========== COMPONENTS ==========
+local function CreateToggle(name, desc, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 44)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local IC = Instance.new("UICorner") IC.CornerRadius = UDim.new(0, 10) IC.Parent = Item
+    local IS = Instance.new("UIStroke") IS.Color = Theme.Stroke IS.Thickness = 1 IS.Parent = Item
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -60, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 12
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+
+    local Desc = Instance.new("TextLabel")
+    Desc.Size = UDim2.new(1, -60, 0, 14)
+    Desc.Position = UDim2.new(0, 14, 0, 24)
+    Desc.BackgroundTransparency = 1
+    Desc.Text = desc or ""
+    Desc.TextColor3 = Theme.SubText
+    Desc.Font = Enum.Font.Gotham
+    Desc.TextSize = 9
+    Desc.TextXAlignment = Enum.TextXAlignment.Left
+    Desc.Parent = Item
+
+    local SwitchBg = Instance.new("Frame")
+    SwitchBg.Size = UDim2.new(0, 38, 0, 20)
+    SwitchBg.Position = UDim2.new(1, -50, 0.5, -10)
+    SwitchBg.BackgroundColor3 = default and Theme.Accent or Theme.PanelHover
+    SwitchBg.BorderSizePixel = 0
+    SwitchBg.Parent = Item
+    local SC = Instance.new("UICorner") SC.CornerRadius = UDim.new(1, 0) SC.Parent = SwitchBg
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 14, 0, 14)
+    Knob.Position = default and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+    Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = SwitchBg
+    local KC = Instance.new("UICorner") KC.CornerRadius = UDim.new(1, 0) KC.Parent = Knob
+
+    local Click = Instance.new("TextButton")
+    Click.Size = UDim2.new(1, 0, 1, 0)
+    Click.BackgroundTransparency = 1
+    Click.Text = ""
+    Click.Parent = Item
+
+    local state = default
+    Click.MouseButton1Click:Connect(Safe(function()
+        state = not state
+        TweenService:Create(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = state and Theme.Accent or Theme.PanelHover}):Play()
+        TweenService:Create(Knob, TweenInfo.new(0.2), {Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)}):Play()
+        TweenService:Create(IS, TweenInfo.new(0.2), {Color = state and Theme.Accent or Theme.Stroke}):Play()
+        callback(state)
+    end))
+
+    Click.MouseEnter:Connect(Safe(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.PanelHover}):Play()
+    end))
+    Click.MouseLeave:Connect(Safe(function()
+        TweenService:Create(Item, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Panel}):Play()
+    end))
+end
+
+local function CreateSlider(name, minV, maxV, default, callback)
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -8, 0, 52)
+    Item.BackgroundColor3 = Theme.Panel
+    Item.BorderSizePixel = 0
+    Item.Parent = Scroll
+    local IC = Instance.new("UICorner") IC.CornerRadius = UDim.new(0, 10) IC.Parent = Item
+    local IS = Instance.new("UIStroke") IS.Color = Theme.Stroke IS.Thickness = 1 IS.Parent = Item
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -80, 0, 18)
+    Label.Position = UDim2.new(0, 14, 0, 6)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Theme.Text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Item
+
+    local ValueLbl = Instance.new("TextLabel")
+    ValueLbl.Size = UDim2.new(0, 60, 0, 18)
+    ValueLbl.Position = UDim2.new(1, -74, 0, 6)
+    ValueLbl.BackgroundTransparency = 1
+    ValueLbl.Text = tostring(default)
+    ValueLbl.TextColor3 = Theme.Accent
+    ValueLbl.Font = Enum.Font.GothamBold
+    ValueLbl.TextSize = 11
+    ValueLbl.TextXAlignment = Enum.TextXAlignment.Right
+    ValueLbl.Parent = Item
+
+    local Track = Instance.new("Frame")
+    Track.Size = UDim2.new(1, -28, 0, 6)
+    Track.Position = UDim2.new(0, 14, 0, 32)
+    Track.BackgroundColor3 = Theme.PanelHover
+    Track.BorderSizePixel = 0
+    Track.Parent = Item
+    local TC = Instance.new("UICorner") TC.CornerRadius = UDim.new(1, 0) TC.Parent = Track
+
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((default - minV) / (maxV - minV), 0, 1, 0)
+    Fill.BackgroundColor3 = Theme.Accent
+    Fill.BorderSizePixel = 0
+    Fill.Parent = Track
+    local FC = Instance.new("UICorner") FC.CornerRadius = UDim.new(1, 0) FC.Parent = Fill
+
+    local FG = Instance.new("UIGradient")
+    FG.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent2),
+    }
+    FG.Parent = Fill
+
+    local dragging = false
+    local TrackBtn = Instance.new("TextButton")
+    TrackBtn.Size = UDim2.new(1, 0, 3, 0)
+    TrackBtn.Position = UDim2.new(0, 0, -1, 0)
+    TrackBtn.BackgroundTransparency = 1
+    TrackBtn.Text = ""
+    TrackBtn.Parent = Track
+
+    TrackBtn.MouseButton1Down:Connect(Safe(function() dragging = true end))
+    AddConn(UIS.InputEnded:Connect(Safe(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)))
+    AddConn(UIS.InputChanged:Connect(Safe(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local rel = math.clamp((i.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+            local val = minV + (maxV - minV) * rel
+            Fill.Size = UDim2.new(rel, 0, 1, 0)
+            ValueLbl.Text = string.format("%.0f", val)
+            callback(val)
+        end
+    end)))
+end
+
+local function CreateSection(text)
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Size = UDim2.new(1, -8, 0, 24)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text = "▸ " .. text
+    Lbl.TextColor3 = Theme.Accent
+    Lbl.Font = Enum.Font.GothamBold
+    Lbl.TextSize = 11
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.Parent = Scroll
+end
+
+-- ========== MENU ==========
+CreateSection("🎯 TARGETING")
+CreateToggle("⚡ Silent Aim", "Bắn đâu trúng đó (head)", Config.SilentAim, function(v) Config.SilentAim = v end)
+CreateToggle("🎯 Aim Body", "Bắn vào người vẫn đỏ (hitbox)", Config.AimBody, function(v)
+    Config.AimBody = v
+    if v then ApplyAimBody() else RemoveAimBody() end
+end)
+CreateToggle("🔒 Center Lock", "Bắn xung quanh cũng vô đầu", Config.CenterLock, function(v) Config.CenterLock = v end)
+
+CreateSection("TUNING")
+CreateSlider("Silent FOV", 50, 800, Config.SilentFOV, function(v) Config.SilentFOV = v end)
+CreateSlider("Aim Body FOV", 50, 500, Config.AimBodyFOV, function(v) Config.AimBodyFOV = v end)
+CreateSlider("Center FOV", 50, 800, Config.CenterFOV, function(v) Config.CenterFOV = v end)
+
+CreateSection("📍 VISUAL")
+CreateToggle("ESP Định Vị", "Thấy địch xuyên tường", Config.ESP, function(v)
+    Config.ESP = v
+    if not v then
+        for _, c in pairs(Workspace:GetDescendants()) do
+            if c.Name == "CyberESP" then pcall(function() c:Destroy() end) end
+        end
+        espCache = {}
+    end
+end)
+
+CreateSection("👻 MOVEMENT")
+CreateToggle("Noclip", "Đi xuyên tường (phím N)", Config.Noclip, function(v)
+    Config.Noclip = v
+    if v then ApplyNoclip() end
+end)
+
+CreateSection("FILTER")
+CreateToggle("Team Check", "Bỏ qua đồng đội", Config.TeamCheck, function(v) Config.TeamCheck = v end)
+
+-- MINIMIZE / CLOSE
+local minimized = false
+local fullSize = UDim2.new(0, 280, 0, 560)
+local miniSize = UDim2.new(0, 280, 0, 62)
+MinBtn.MouseButton1Click:Connect(Safe(function()
+    minimized = not minimized
+    TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+        Size = minimized and miniSize or fullSize
+    }):Play()
+    Scroll.Visible = not minimized
+end))
+
+CloseBtn.MouseButton1Click:Connect(Safe(function()
+    DisconnectAll()
+    RemoveAimBody()
+    pcall(function() ScreenGui:Destroy() end)
+end))
+
+-- ========== HELPERS ==========
+local camPosCache = Vector3.zero
+local function UpdateCamCache()
+    camPosCache = Camera.CFrame.Position
+end
+
+local function GetAliveChar(player)
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+    return char
+end
+
+local function IsValidTarget(player, char)
+    if player == LocalPlayer then return false end
+    if not char then return false end
+    if Config.TeamCheck and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+        return false
+    end
+    return true
+end
+
+-- ========== TARGET CACHE ==========
+local headCache = { head = nil, dist = math.huge }
+local bodyCache = { part = nil, dist = math.huge }
+local centerCache = { head = nil, dist = math.huge }
+local lastTargetUpdate = 0
+local lastCenterUpdate = 0
+
+local function RefreshTargets(now)
+    if now - lastTargetUpdate < Config.TargetUpdate then return end
+    lastTargetUpdate = now
+
+    local bestHead, bestHeadDist = nil, Config.SilentFOV
+    local bestBody, bestBodyDist = nil, Config.AimBodyFOV
+    local mx, my = Mouse.X, Mouse.Y
+    local camPos = camPosCache
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char and IsValidTarget(player, char) then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local head = char:FindFirstChild("Head")
+                    local bodyPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+                    
+                    if head and (head.Position - camPos).Magnitude < 500 then
+                        local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen then
+                            local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(mx, my)).Magnitude
+                            if d < bestHeadDist then
+                                bestHeadDist = d
+                                bestHead = head
+                            end
+                        end
+                    end
+                    
+                    if bodyPart and (bodyPart.Position - camPos).Magnitude < 500 then
+                        local sp, onScreen = Camera:WorldToViewportPoint(bodyPart.Position)
+                        if onScreen then
+                            local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(mx, my)).Magnitude
+                            if d < bestBodyDist then
+                                bestBodyDist = d
+                                bestBody = bodyPart
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    headCache.head = bestHead
+    headCache.dist = bestHeadDist
+    bodyCache.part = bestBody
+    bodyCache.dist = bestBodyDist
+end
+
+local function RefreshCenter(now)
+    if now - lastCenterUpdate < Config.TargetUpdate then return end
+    lastCenterUpdate = now
+
+    local best, bestDist = nil, Config.CenterFOV
+    local vp = Camera.ViewportSize
+    local cx, cy = vp.X / 2, vp.Y / 2
+    local camPos = camPosCache
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char and IsValidTarget(player, char) then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local head = char:FindFirstChild("Head")
+                    if head and (head.Position - camPos).Magnitude < 500 then
+                        local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen then
+                            local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(cx, cy)).Magnitude
+                            if d < bestDist then
+                                bestDist = d
+                                best = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    centerCache.head = best
+    centerCache.dist = bestDist
+end
+
+-- ========== NOCLIP ==========
+local noclipRunning = false
+function ApplyNoclip()
+    if noclipRunning then return end
+    noclipRunning = true
+    task.spawn(function()
+        while Config.Noclip do
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+        noclipRunning = false
+    end)
+end
+
+-- ========== AIM BODY (hitbox expander) ==========
+local aimBodyConn = nil
+local originalSizes = {}
+
+function ApplyAimBody()
+    RemoveAimBody()
+    aimBodyConn = RunService.Heartbeat:Connect(Safe(function()
+        if not Config.AimBody then return end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local char = p.Character
+                if char and IsValidTarget(p, char) then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") and part.Name ~= "Head" then
+                                if not originalSizes[part] then
+                                    originalSizes[part] = part.Size
+                                end
+                                local orig = originalSizes[part]
+                                local newSize = Vector3.new(
+                                    math.max(orig.X, 3),
+                                    math.max(orig.Y, 3),
+                                    math.max(orig.Z, 3)
+                                )
+                                if part.Size ~= newSize then
+                                    part.Size = newSize
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end))
+end
+
+function RemoveAimBody()
+    if aimBodyConn then
+        pcall(function() aimBodyConn:Disconnect() end)
+        aimBodyConn = nil
+    end
+    for part, size in pairs(originalSizes) do
+        if part and part.Parent then
+            pcall(function() part.Size = size end)
+        end
+    end
+    originalSizes = {}
+end
+
+-- ========== ESP ==========
+local espCache = {}
+local lastEspUpdate = 0
+
+local function UpdateESP(now)
+    if now - lastEspUpdate < Config.ESPRate then return end
+    lastEspUpdate = now
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = GetAliveChar(player)
+            if Config.ESP and char then
+                local existing = espCache[player]
+                if not existing or existing.Parent ~= char then
+                    if existing then pcall(function() existing:Destroy() end) end
+                    local h = Instance.new("Highlight")
+                    h.Name = "CyberESP"
+                    h.FillColor = Theme.Accent
+                    h.FillTransparency = 0.6
+                    h.OutlineColor = Theme.Accent2
+                    h.OutlineTransparency = 0
+                    h.Parent = char
+                    espCache[player] = h
+                end
+            elseif not Config.ESP and espCache[player] then
+                pcall(function() espCache[player]:Destroy() end)
+                espCache[player] = nil
+            end
+        end
+    end
+end
+
+-- ================================================================
+-- ⚡ SILENT AIM - ZERO LAG
+-- ================================================================
+local silentAimHooked = false
+local silentAimMethod = "none"
+local silentActive = false
+local cachedHitCFrame = nil
+local cachedTargetPart = nil
+
+local function SetupSilentAim()
+    if silentAimHooked then return end
+
+    local hasGetRawMeta = (typeof(getrawmetatable) == "function")
+    local hasSetReadonly = (typeof(setreadonly) == "function")
+    local hasIsReadonly  = (typeof(isreadonly) == "function")
+
+    if hasGetRawMeta then
+        local okA, errA = pcall(function()
+            local mt = getrawmetatable(Mouse)
+            if not mt then error("no mouse metatable") end
+            local oldIndex = rawget(mt, "__index")
+            if not oldIndex then error("no __index") end
+
+            local wasRO = false
+            if hasIsReadonly and hasSetReadonly then
+                wasRO = isreadonly(mt)
+                if wasRO then setreadonly(mt, false) end
+            end
+
+            rawset(mt, "__index", function(self, key)
+                if not silentActive then
+                    return oldIndex(self, key)
+                end
+                if key == "Hit" then
+                    return cachedHitCFrame or oldIndex(self, key)
+                elseif key == "Target" then
+                    return cachedTargetPart or oldIndex(self, key)
+                end
+                return oldIndex(self, key)
+            end)
+
+            if wasRO and hasSetReadonly then setreadonly(mt, true) end
+        end)
+
+        if okA then
+            silentAimHooked = true
+            silentAimMethod = "getrawmetatable(Mouse) ✓"
+            print("⚡ Silent Aim: " .. silentAimMethod)
+            return
+        end
+    end
+
+    if typeof(hookmetamethod) == "function" then
+        local okB = pcall(function()
+            local oldIndex
+            oldIndex = hookmetamethod(game, "__index", function(self, key)
+                if not silentActive then return oldIndex(self, key) end
+                if key ~= "Hit" and key ~= "Target" then return oldIndex(self, key) end
+                if typeof(self) == "Instance" and self.ClassName == "Mouse" then
+                    if key == "Hit" then
+                        return cachedHitCFrame or oldIndex(self, key)
+                    elseif key == "Target" then
+                        return cachedTargetPart or oldIndex(self, key)
+                    end
+                end
+                return oldIndex(self, key)
+            end)
+        end)
+        if okB then
+            silentAimHooked = true
+            silentAimMethod = "__index fallback"
+            print("⚡ Silent Aim: " .. silentAimMethod)
+            return
+        end
+    end
+
+    Config.SilentAim = false
+    warn("⚠️ Silent Aim không khả dụng trên executor này")
+end
+
+pcall(SetupSilentAim)
+
+-- Update silent cache (main loop)
+local function UpdateSilentCache()
+    if not Config.SilentAim then
+        silentActive = false
+        cachedHitCFrame = nil
+        cachedTargetPart = nil
+        return
+    end
+
+    -- Silent Aim ưu tiên head, nếu CenterLock bật thì dùng centerCache
+    local target = Config.CenterLock and centerCache.head or headCache.head
+    if target and target.Parent and target:IsDescendantOf(Workspace) then
+        local ok, cf = pcall(function()
+            return CFrame.new(camPosCache, target.Position)
+        end)
+        if ok and cf then
+            cachedHitCFrame = cf
+            cachedTargetPart = target
+            silentActive = true
+            return
+        end
+    end
+    silentActive = false
+    cachedHitCFrame = nil
+    cachedTargetPart = nil
+end
+
+-- ================================================================
+-- MAIN LOOP
+-- ================================================================
+local lastLoopUpdate = 0
+
+AddConn(RunService.RenderStepped:Connect(Safe(function()
+    local now = tick()
+    if now - lastLoopUpdate < Config.LoopRate then return end
+    lastLoopUpdate = now
+
+    UpdateCamCache()
+    RefreshTargets(now)
+    RefreshCenter(now)
+    UpdateSilentCache()
+    UpdateESP(now)
+
+    -- 🔒 CENTER LOCK: camera bám theo đầu địch (bắn xung quanh cũng vô đầu)
+    if Config.CenterLock then
+        local head = centerCache.head
+        if head and head.Parent then
+            local cur = Camera.CFrame
+            local new = CFrame.new(cur.Position, head.Position)
+            Camera.CFrame = cur:Lerp(new, 0.35)
+        end
+    end
+end)))
+
+-- ========== KEYBIND ==========
+AddConn(UIS.InputBegan:Connect(Safe(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.N then
+        Config.Noclip = not Config.Noclip
+        if Config.Noclip then ApplyNoclip() end
+        print("👻 Noclip: " .. (Config.Noclip and "ON" or "OFF"))
+    end
+end)))
+
+-- ========== RESPAWN ==========
+AddConn(LocalPlayer.CharacterAdded:Connect(Safe(function()
+    task.wait(1)
+    silentActive = false
+    cachedHitCFrame = nil
+    cachedTargetPart = nil
+    headCache.head = nil
+    bodyCache.part = nil
+    centerCache.head = nil
+    if Config.Noclip then ApplyNoclip() end
+    if Config.AimBody then ApplyAimBody() end
+end)))
+
+-- ========== CLEANUP ==========
+AddConn(Players.PlayerRemoving:Connect(Safe(function(p)
+    if espCache[p] then
+        pcall(function() espCache[p]:Destroy() end)
+        espCache[p] = nil
+    end
+    if p.Character then
+        pcall(function()
+            if headCache.head and headCache.head:IsDescendantOf(p.Character) then headCache.head = nil end
+            if bodyCache.part and bodyCache.part:IsDescendantOf(p.Character) then bodyCache.part = nil end
+            if centerCache.head and centerCache.head:IsDescendantOf(p.Character) then centerCache.head = nil end
+            if cachedTargetPart and cachedTargetPart:IsDescendantOf(p.Character) then
+                silentActive = false
+                cachedHitCFrame = nil
+                cachedTargetPart = nil
+            end
+        end)
+    end
+end)))
+
+game:BindToClose(Safe(function()
+    DisconnectAll()
+    RemoveAimBody()
+    pcall(function() ScreenGui:Destroy() end)
+end))
+
+print("⚡ ELECTRIC CYBER loaded! 💀")
+print("⚡ Silent Aim: " .. silentAimMethod)
+print("🎯 Aim Body | 🔒 Center Lock | 📍 ESP | 👻 Noclip")
+print("🚀 Zero lag • 30Hz target • 5Hz ESP")
+print("📌 Phím N = Noclip")
